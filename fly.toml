@@ -1,11 +1,15 @@
 app = "vinted-parser"
-primary_region = "iad"
+primary_region = "arn"
+
+[build]
 
 [env]
-  PYTHONUNBUFFERED = "1"
-  TZ = "Europe/Moscow"
+  PORT = "8080"
 
-[[vm]]
-  cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 512
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+[processes]
+  app = "python vinted_bot.py"
+
