@@ -99,17 +99,22 @@ def fetch_items(query: str, domain: str) -> list | str:
             },
             timeout=20,
         )
+        ct = r.headers.get("content-type", "")
+        log.info(f"{domain} → {r.status_code} | {ct[:40]} | {r.text[:80]}")
         if r.status_code == 200:
-            ct = r.headers.get("content-type", "")
             if "json" not in ct:
-                log.warning(f"{domain} вернул не JSON ({ct}) — пересоздаю сессию")
+                log.warning(f"{domain} вернул не JSON — пересоздаю сессию")
                 init_session(domain)
                 return []
             return r.json().get("items", [])
-        elif r.status_code == 403:
-            log.error(f"❌ 403 на {domain} — пересоздаю сессию")
+        elif r.status_code in (403, 429):
+            log.error(f"❌ {r.status_code} на {domain} — пересоздаю сессию")
             sessions.pop(domain, None)
             return "BAN"
+        elif r.status_code == 401:
+            log.warning(f"401 на {domain}")
+            init_session(domain)
+            return []
         else:
             log.warning(f"{domain} → {r.status_code}")
             return []
