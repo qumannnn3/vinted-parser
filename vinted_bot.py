@@ -17,7 +17,7 @@ from telegram.ext import (
 #  НАСТРОЙКИ
 # ─────────────────────────────────────────────
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "") [cite: 1]
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 TARGET_REGIONS = {
     "pl": "www.vinted.pl",
@@ -35,21 +35,21 @@ HTTP.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
-}) [cite: 1]
+})
 
 # ─── Состояние ────────────────────────────────
 state = {
     "running": False,
     "brands": ["stone island", "adidas", "nike", "stussy"],
-    "min_price": 0,        # Минимальная цена
-    "max_price": 50,       # Максимальная цена
-    "interval": 600,       # 10 минут между циклами
-    "pause_brands": 12,    # Пауза для защиты IP
+    "min_price": 0,        
+    "max_price": 50,       
+    "interval": 600,       
+    "pause_brands": 12,    
     "chat_id": None,
     "seen_ids": set(),
     "stats": {"cycles": 0, "found": 0, "started_at": None},
     "awaiting_input": None,
-} [cite: 1]
+}
 
 monitor_thread: Optional[threading.Thread] = None
 bot_app: Optional[Application] = None
@@ -70,14 +70,15 @@ def fetch_items(query: str, domain: str) -> list:
         return r.json().get("items", [])
     except Exception as e:
         log.warning(f"Ошибка fetch ({domain}): {e}")
-        return [] [cite: 1]
+        return []
 
 def check_price_range(item: dict) -> bool:
     try:
-        price = float(item.get("price", {}).get("amount", 0))
+        price_data = item.get("price", {})
+        price = float(price_data.get("amount", 0))
         return state["min_price"] <= price <= state["max_price"]
     except (TypeError, ValueError):
-        return False [cite: 1]
+        return False
 
 def format_find(item: dict, brand: str, domain: str) -> str:
     title = item.get("title", "Без названия")
@@ -90,7 +91,7 @@ def format_find(item: dict, brand: str, domain: str) -> str:
             f"📦 {title}\n"
             f"💰 <b>Цена: {price} {curr}</b>\n"
             f"🌐 Регион: {domain.split('.')[-1].upper()}\n"
-            f"🔗 <a href='{link}'>Открыть на Vinted</a>") [cite: 1]
+            f"🔗 {link}")
 
 # ─────────────────────────────────────────────
 #  ПОТОК МОНИТОРИНГА
@@ -98,12 +99,17 @@ def format_find(item: dict, brand: str, domain: str) -> str:
 
 def monitor_loop():
     import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
     while state["running"]:
         state["stats"]["cycles"] += 1
-        for brand in state["brands"][:]:
+        current_brands = list(state["brands"])
+        
+        for brand in current_brands:
             if not state["running"]: break
 
             for _, domain in TARGET_REGIONS.items():
@@ -125,12 +131,11 @@ def monitor_loop():
                                     text=msg, parse_mode="HTML"
                                 )
                             )
-                time.sleep(5) # Пауза между регионами
-            time.sleep(state["pause_brands"]) # Пауза между брендами
+                time.sleep(5) 
+            time.sleep(state["pause_brands"]) 
 
         if state["running"]:
             time.sleep(state["interval"])
-    loop.close() [cite: 1]
 
 # ─────────────────────────────────────────────
 #  ТЕЛЕГРАМ БОТ
@@ -144,18 +149,18 @@ def main_kb():
          InlineKeyboardButton("💰 Макс. цена", callback_data="set_max")],
         [InlineKeyboardButton("📋 Бренды", callback_data="brands"),
          InlineKeyboardButton("📊 Статус", callback_data="status")]
-    ]) [cite: 1]
+    ])
 
 def home_text():
     st = "🟢 работает" if state["running"] else "🔴 остановлен"
-    return (f"<b>Vinted Monitor (Range Mode)</b>\n\n"
+    return (f"<b>Vinted Monitor (Диапазон цен)</b>\n\n"
             f"Статус: {st}\n"
             f"Диапазон: <b>{state['min_price']} — {state['max_price']}</b>\n"
-            f"Интервал: {state['interval']}с") [cite: 1]
+            f"Интервал: {state['interval']}с")
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     state["chat_id"] = update.effective_chat.id
-    await update.message.reply_text(home_text(), reply_markup=main_kb(), parse_mode="HTML") [cite: 1]
+    await update.message.reply_text(home_text(), reply_markup=main_kb(), parse_mode="HTML")
 
 async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -174,34 +179,4 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         state["awaiting_input"] = "min"
         await q.message.reply_text("Введите минимальную цену:")
 
-    elif q.data == "set_max":
-        state["awaiting_input"] = "max"
-        await q.message.reply_text("Введите максимальную цену:")
-    
-    elif q.data == "status":
-        await q.message.reply_text(f"Находок: {state['stats']['found']}\nЦиклов: {state['stats']['cycles']}") [cite: 1]
-
-async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    val = update.message.text
-    if state["awaiting_input"] in ["min", "max"]:
-        try:
-            num = int(val)
-            if state["awaiting_input"] == "min": state["min_price"] = num
-            else: state["max_price"] = num
-            await update.message.reply_text(f"✅ Цена обновлена!", reply_markup=main_kb())
-        except:
-            await update.message.reply_text("⚠️ Введите число.")
-        state["awaiting_input"] = None [cite: 1]
-
-def main():
-    if not BOT_TOKEN: return
-    app = Application.builder().token(BOT_TOKEN).build()
-    global bot_app
-    bot_app = app
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CallbackQueryHandler(on_button))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    app.run_polling() [cite: 1]
-
-if __name__ == "__main__":
-    main()
+    elif q.data == "set_max
