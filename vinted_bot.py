@@ -131,9 +131,13 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 def main():
     global bot_app
+    proxy_url = os.environ.get("PROXY_URL", "")
+    builder = Application.builder().token(BOT_TOKEN)
+    if proxy_url:
+        builder = builder.proxy(proxy_url).get_updates_proxy(proxy_url)
+        log.info(f"Прокси: {proxy_url}")
     bot_app = (
-        Application.builder()
-        .token(BOT_TOKEN)
+        builder
         .connect_timeout(30)
         .read_timeout(30)
         .write_timeout(30)
@@ -149,8 +153,10 @@ def main():
     )
 
 if __name__ == "__main__":
+    import asyncio
     while True:
         try:
+            asyncio.set_event_loop(asyncio.new_event_loop())
             main()
         except Exception as e:
             log.error(f"Бот упал: {e}. Перезапуск через 10с...")
