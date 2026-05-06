@@ -131,10 +131,27 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 def main():
     global bot_app
-    bot_app = Application.builder().token(BOT_TOKEN).build()
+    bot_app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .connect_timeout(30)
+        .read_timeout(30)
+        .write_timeout(30)
+        .pool_timeout(30)
+        .build()
+    )
     bot_app.add_handler(CommandHandler("start", cmd_start))
     bot_app.add_handler(CallbackQueryHandler(on_button))
-    bot_app.run_polling()
+    bot_app.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+        timeout=30,
+    )
 
 if __name__ == "__main__":
-    main()
+    while True:
+        try:
+            main()
+        except Exception as e:
+            log.error(f"Бот упал: {e}. Перезапуск через 10с...")
+            time.sleep(10)
