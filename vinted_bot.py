@@ -19,6 +19,7 @@ from telegram.ext import (
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
+# Регионы мониторинга (Польша и Литва/Латвия)
 TARGET_REGIONS = {
     "pl": "www.vinted.pl",
     "lt": "www.vinted.lt"
@@ -40,9 +41,14 @@ HTTP.headers.update({
 # ─── Состояние ────────────────────────────────
 state = {
     "running": False,
-    "brands": ["nike", "stone island", "adidas", "stussy", "jordan"],
-    "min_price": 10,       # Увеличили минимум
-    "max_price": 200,      # Увеличили максимум
+    "brands": [
+        "vetements", "balenciaga", "racer worldwide", "raf simons", 
+        "palm angels", "bape", "aape", "givenchy", "dolce gabana", 
+        "d&g", "maison margiela", "gucci", "burberry", "number nine", 
+        "undercover", "acne studio", "supreme", "alyx", "amiri"
+    ],
+    "min_price": 10,       
+    "max_price": 300,      
     "interval": 600,       
     "pause_brands": 15,    
     "chat_id": None,
@@ -55,18 +61,17 @@ monitor_thread: Optional[threading.Thread] = None
 bot_app: Optional[Application] = None
 
 # ─────────────────────────────────────────────
-#  ЛОГИКА ПАРСИНГА (С ИСПРАВЛЕНИЕМ 401/403)
+#  ЛОГИКА ПАРСИНГА
 # ─────────────────────────────────────────────
 
 def fetch_items(query: str, domain: str) -> list:
     try:
-        # Если куки еще не получены, заходим на главную
+        # Инициализация сессии для получения cookie (защита от 401 ошибки)
         if not HTTP.cookies.get_dict(domain=domain):
-            log.info(f"Получение куки для {domain}...")
+            log.info(f"Инициализация сессии для {domain}...")
             HTTP.get(f"https://{domain}/", timeout=15)
             time.sleep(2)
 
-        # Обновляем заголовки для конкретного запроса
         HTTP.headers.update({
             "Referer": f"https://{domain}/catalog?search_text={query}",
             "X-Requested-With": "XMLHttpRequest"
@@ -83,16 +88,15 @@ def fetch_items(query: str, domain: str) -> list:
             timeout=15,
         )
 
-        # Если Vinted сбросил авторизацию
         if r.status_code == 401:
-            log.warning(f"Доступ отклонен (401) на {domain}, пробуем обновить сессию...")
+            log.warning(f"Доступ 401 на {domain}. Сброс сессии...")
             HTTP.cookies.clear()
             return []
 
         r.raise_for_status()
         return r.json().get("items", [])
     except Exception as e:
-        log.warning(f"Ошибка fetch ({domain}): {e}")
+        log.warning(f"Ошибка при запросе к {domain}: {e}")
         return []
 
 def check_price_range(item: dict) -> bool:
@@ -117,7 +121,7 @@ def format_find(item: dict, brand: str, domain: str) -> str:
             f"🔗 <a href='{link}'>Открыть на Vinted</a>")
 
 # ─────────────────────────────────────────────
-#  ПОТОК МОНИТОРИНГА
+#  МОНИТОРИНГ
 # ─────────────────────────────────────────────
 
 def monitor_loop():
@@ -159,15 +163,15 @@ def monitor_loop():
                                     disable_web_page_preview=False
                                 )
                             )
-                time.sleep(8) # Пауза между доменами
-            time.sleep(state["pause_brands"]) # Пауза между брендами
+                time.sleep(8) 
+            time.sleep(state["pause_brands"]) 
 
         if state["running"]:
-            log.info(f"Круг окончен. Спим {state['interval']}с")
+            log.info(f"Цикл завершен. Пауза {state['interval']}с")
             time.sleep(state["interval"])
 
 # ─────────────────────────────────────────────
-#  ТЕЛЕГРАМ БОТ
+#  ИНТЕРФЕЙС БОТА
 # ─────────────────────────────────────────────
 
 def main_kb():
@@ -185,7 +189,7 @@ def home_text():
     return (f"<b>Vinted Monitor (PL/LT/LV)</b>\n\n"
             f"Статус: {st}\n"
             f"Диапазон: <b>{state['min_price']} — {state['max_price']}</b>\n"
-            f"Интервал: {state['interval']}с")
+            f"Интервал круга: {state['interval']}с")
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     state["chat_id"] = update.effective_chat.id
@@ -217,7 +221,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     elif q.data == "brands":
         bl = "\n".join(f"• {b.upper()}" for b in state["brands"])
-        await q.message.reply_text(f"Список брендов:\n{bl}")
+        await q.message.reply_text(f"<b>📋 Список брендов:</b>\n\n{bl}", parse_mode="HTML")
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     val = update.message.text
@@ -239,7 +243,7 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    log.info("Бот готов к работе")
+    log.info("Бот запущен")
     app.run_polling()
 
 if __name__ == "__main__":
