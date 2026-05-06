@@ -32,19 +32,19 @@ log = logging.getLogger(__name__)
 
 HTTP = requests.Session()
 HTTP.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
 })
 
 # ─── Состояние ────────────────────────────────
 state = {
     "running": False,
-    "brands": ["stone island", "adidas", "nike", "stussy"],
-    "min_price": 0,        
-    "max_price": 50,       
+    "brands": ["nike", "stone island", "adidas", "stussy", "jordan"],
+    "min_price": 10,       # Увеличили минимум
+    "max_price": 200,      # Увеличили максимум
     "interval": 600,       
-    "pause_brands": 12,    
+    "pause_brands": 15,    
     "chat_id": None,
     "seen_ids": set(),
     "stats": {"cycles": 0, "found": 0, "started_at": None},
@@ -55,17 +55,40 @@ monitor_thread: Optional[threading.Thread] = None
 bot_app: Optional[Application] = None
 
 # ─────────────────────────────────────────────
-#  ЛОГИКА ПАРСИНГА
+#  ЛОГИКА ПАРСИНГА (С ИСПРАВЛЕНИЕМ 401/403)
 # ─────────────────────────────────────────────
 
 def fetch_items(query: str, domain: str) -> list:
     try:
-        HTTP.headers.update({"Referer": f"https://{domain}/", "Origin": f"https://{domain}"})
+        # Если куки еще не получены, заходим на главную
+        if not HTTP.cookies.get_dict(domain=domain):
+            log.info(f"Получение куки для {domain}...")
+            HTTP.get(f"https://{domain}/", timeout=15)
+            time.sleep(2)
+
+        # Обновляем заголовки для конкретного запроса
+        HTTP.headers.update({
+            "Referer": f"https://{domain}/catalog?search_text={query}",
+            "X-Requested-With": "XMLHttpRequest"
+        })
+
         r = HTTP.get(
             f"https://{domain}/api/v2/catalog/items",
-            params={"search_text": query, "page": 1, "per_page": 50, "order": "newest_first"},
+            params={
+                "search_text": query, 
+                "page": 1, 
+                "per_page": 50, 
+                "order": "newest_first"
+            },
             timeout=15,
         )
+
+        # Если Vinted сбросил авторизацию
+        if r.status_code == 401:
+            log.warning(f"Доступ отклонен (401) на {domain}, пробуем обновить сессию...")
+            HTTP.cookies.clear()
+            return []
+
         r.raise_for_status()
         return r.json().get("items", [])
     except Exception as e:
@@ -91,7 +114,7 @@ def format_find(item: dict, brand: str, domain: str) -> str:
             f"📦 {title}\n"
             f"💰 <b>Цена: {price} {curr}</b>\n"
             f"🌐 Регион: {domain.split('.')[-1].upper()}\n"
-            f"🔗 {link}")
+            f"🔗 <a href='{link}'>Открыть на Vinted</a>")
 
 # ─────────────────────────────────────────────
 #  ПОТОК МОНИТОРИНГА
@@ -116,6 +139,10 @@ def monitor_loop():
                 if not state["running"]: break
                 
                 items = fetch_items(brand, domain)
+                if not items:
+                    time.sleep(5)
+                    continue
+
                 for item in items:
                     iid = item.get("id")
                     if iid in state["seen_ids"]: continue
@@ -128,13 +155,15 @@ def monitor_loop():
                             loop.run_until_complete(
                                 bot_app.bot.send_message(
                                     chat_id=state["chat_id"],
-                                    text=msg, parse_mode="HTML"
+                                    text=msg, parse_mode="HTML",
+                                    disable_web_page_preview=False
                                 )
                             )
-                time.sleep(5) 
-            time.sleep(state["pause_brands"]) 
+                time.sleep(8) # Пауза между доменами
+            time.sleep(state["pause_brands"]) # Пауза между брендами
 
         if state["running"]:
+            log.info(f"Круг окончен. Спим {state['interval']}с")
             time.sleep(state["interval"])
 
 # ─────────────────────────────────────────────
@@ -153,7 +182,7 @@ def main_kb():
 
 def home_text():
     st = "🟢 работает" if state["running"] else "🔴 остановлен"
-    return (f"<b>Vinted Monitor (Диапазон цен)</b>\n\n"
+    return (f"<b>Vinted Monitor (PL/LT/LV)</b>\n\n"
             f"Статус: {st}\n"
             f"Диапазон: <b>{state['min_price']} — {state['max_price']}</b>\n"
             f"Интервал: {state['interval']}с")
@@ -187,7 +216,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text(f"Находок: {state['stats']['found']}\nЦиклов: {state['stats']['cycles']}")
 
     elif q.data == "brands":
-        bl = "\n".join(f"• {b}" for b in state["brands"])
+        bl = "\n".join(f"• {b.upper()}" for b in state["brands"])
         await q.message.reply_text(f"Список брендов:\n{bl}")
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -197,21 +226,20 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             num = int(val)
             if state["awaiting_input"] == "min": state["min_price"] = num
             else: state["max_price"] = num
-            await update.message.reply_text(f"✅ Готово!", reply_markup=main_kb())
+            await update.message.reply_text(f"✅ Цена обновлена!", reply_markup=main_kb())
         except:
-            await update.message.reply_text("⚠️ Введите целое число.")
+            await update.message.reply_text("⚠️ Введите число.")
         state["awaiting_input"] = None
 
 def main():
-    if not BOT_TOKEN:
-        print("Ошибка: BOT_TOKEN не найден!")
-        return
+    if not BOT_TOKEN: return
     app = Application.builder().token(BOT_TOKEN).build()
     global bot_app
     bot_app = app
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    log.info("Бот готов к работе")
     app.run_polling()
 
 if __name__ == "__main__":
