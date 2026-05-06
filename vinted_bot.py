@@ -179,4 +179,40 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         state["awaiting_input"] = "min"
         await q.message.reply_text("Введите минимальную цену:")
 
-    elif q.data == "set_max
+    elif q.data == "set_max":
+        state["awaiting_input"] = "max"
+        await q.message.reply_text("Введите максимальную цену:")
+    
+    elif q.data == "status":
+        await q.message.reply_text(f"Находок: {state['stats']['found']}\nЦиклов: {state['stats']['cycles']}")
+
+    elif q.data == "brands":
+        bl = "\n".join(f"• {b}" for b in state["brands"])
+        await q.message.reply_text(f"Список брендов:\n{bl}")
+
+async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    val = update.message.text
+    if state["awaiting_input"] in ["min", "max"]:
+        try:
+            num = int(val)
+            if state["awaiting_input"] == "min": state["min_price"] = num
+            else: state["max_price"] = num
+            await update.message.reply_text(f"✅ Готово!", reply_markup=main_kb())
+        except:
+            await update.message.reply_text("⚠️ Введите целое число.")
+        state["awaiting_input"] = None
+
+def main():
+    if not BOT_TOKEN:
+        print("Ошибка: BOT_TOKEN не найден!")
+        return
+    app = Application.builder().token(BOT_TOKEN).build()
+    global bot_app
+    bot_app = app
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CallbackQueryHandler(on_button))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
