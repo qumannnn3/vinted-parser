@@ -100,13 +100,33 @@ def fetch_items(query: str, domain: str) -> list | str:
             timeout=20,
         )
         ct = r.headers.get("content-type", "")
-        log.info(f"{domain} → {r.status_code} | {ct[:40]} | {r.text[:80]}")
         if r.status_code == 200:
             if "json" not in ct:
                 log.warning(f"{domain} вернул не JSON — пересоздаю сессию")
                 init_session(domain)
                 return []
-            return r.json().get("items", [])
+            try:
+                # Пробуем декодировать brotli вручную если requests не справился
+                content = r.content
+                encoding = r.headers.get("content-encoding", "")
+                if encoding == "br":
+                    import brotli
+                    content = brotli.decompress(content)
+                elif encoding == "gzip":
+                    import gzip
+                    content = gzip.decompress(content)
+                import json as _json
+                data = _json.loads(content)
+                items = data.get("items", [])
+                log.info(f"{domain} → {r.status_code} | {len(items)} товаров")
+                return items
+            except Exception as e:
+                log.warning(f"{domain} decode error: {e}")
+                # Fallback — пробуем через r.json()
+                try:
+                    return r.json().get("items", [])
+                except Exception:
+                    return []
         elif r.status_code in (403, 429):
             log.error(f"❌ {r.status_code} на {domain} — пересоздаю сессию")
             sessions.pop(domain, None)
