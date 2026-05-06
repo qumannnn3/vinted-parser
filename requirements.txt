@@ -1,2 +1,2 @@
 requests
-Python 3.13
+python-telegram-bot>=21.0
