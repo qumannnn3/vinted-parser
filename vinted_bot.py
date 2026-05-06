@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-import logging, time, threading, os, random, requests
+import logging, time, threading, os, random, requests, json as _json, gzip
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-BOT_TOKEN  = os.environ.get("BOT_TOKEN", "")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 PROXY_URL  = os.environ.get("PROXY_URL", "")
 
 TARGET_REGIONS = {
@@ -12,29 +12,42 @@ TARGET_REGIONS = {
     "lv": "www.vinted.lv",
 }
 
+# Категории: одежда муж/жен, обувь муж/жен, аксессуары муж/жен
+CATALOG_IDS = [1, 3, 5, 9, 7, 12]
+
 BAD_WORDS = [
-    "pieluchy","pampers","baby","dziecko","dla dzieci",
-    "подгузники","детское","underwear","socks","bielizna",
-    "majtki","skarpety","nosidełko","fotelik",
+    "pieluchy","pampers","baby","dziecko","dla dzieci","подгузники","детское",
+    "nosidełko","fotelik","wózek","kocyk","smoczek","łóżeczko",
+    "underwear","socks","bielizna","majtki","skarpety","rajstopy",
+    "biustonosz","bokserki","stringi","figi",
+    "kask","rower","hulajnoga","rolki","narty","deska",
+    "telefon","laptop","tablet","konsola",
+    "perfumy","krem","szampon",
+    "książka","zabawka","puzzle","klocki",
+    "pościel","poduszka","kołdra","ręcznik","zasłona",
 ]
 
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO)
 log = logging.getLogger(__name__)
 
+ALL_BRANDS = [
+    "stone island", "balenciaga", "raf simons", "bape", "aape",
+    "gucci", "chanel", "jeremy scott", "undercover", "comme des garcons",
+    "yohji yamamoto", "vetements", "palm angels", "maison margiela",
+    "givenchy", "burberry", "supreme", "amiri", "acne studios", "alyx",
+]
+
 state = {
     "running": False,
-    "brands": [
-        "stone island","balenciaga","raf simons","bape","aape",
-        "gucci","chanel","jeremy scott","undercover","comme des garcons",
-        "yohji yamamoto","vetements","palm angels","maison margiela",
-        "givenchy","burberry","supreme","amiri","acne studios","alyx",
-    ],
-    "min_price": 30,
-    "max_price": 3000,
+    "active_brands": set(ALL_BRANDS),  # активные бренды
+    "min_price": 10,
+    "max_price": 500,
     "interval": 300,
     "chat_id": None,
     "seen_ids": set(),
     "stats": {"found": 0, "cycles": 0},
+    "awaiting": None,      # "min" / "max"
+    "brands_page": 0,      # страница списка брендов
 }
 
 bot_app = None
@@ -48,8 +61,9 @@ USER_AGENTS = [
 
 sessions: dict = {}
 
+# ── VINTED ────────────────────────────────────────────────────────────────
 
-def make_session(domain: str) -> requests.Session:
+def make_session(domain):
     s = requests.Session()
     s.headers.update({
         "User-Agent": random.choice(USER_AGENTS),
@@ -64,77 +78,73 @@ def make_session(domain: str) -> requests.Session:
     return s
 
 
-def init_session(domain: str) -> requests.Session:
+def init_session(domain):
     s = make_session(domain)
     try:
-        # Сначала грузим главную — получаем куки
-        r = s.get(f"https://{domain}/", timeout=15)
-        log.info(f"Сессия {domain}: {r.status_code}")
-        # Потом грузим каталог — ещё куки
+        s.get(f"https://{domain}/", timeout=15)
         s.get(f"https://{domain}/catalog", timeout=15)
+        log.info(f"Сессия {domain}: OK")
     except Exception as e:
         log.warning(f"init_session {domain}: {e}")
     sessions[domain] = s
     return s
 
 
-def get_session(domain: str) -> requests.Session:
+def get_session(domain):
     return sessions.get(domain) or init_session(domain)
 
 
-def fetch_items(query: str, domain: str) -> list | str:
+def decode_response(r):
+    encoding = r.headers.get("content-encoding", "").lower()
+    content = r.content
+    try:
+        if encoding == "br":
+            try:
+                import brotli
+                content = brotli.decompress(content)
+            except ImportError:
+                pass
+        elif encoding == "gzip":
+            content = gzip.decompress(content)
+        return _json.loads(content)
+    except Exception:
+        try:
+            return r.json()
+        except Exception:
+            return {}
+
+
+def fetch_items(query, domain):
     s = get_session(domain)
     s.headers["User-Agent"] = random.choice(USER_AGENTS)
-
     try:
+        params = [
+            ("search_text", query),
+            ("page", 1),
+            ("per_page", 48),
+            ("order", "newest_first"),
+            ("price_from", state["min_price"]),
+            ("price_to", state["max_price"]),
+            ("currency", "EUR"),
+        ]
+        for cid in CATALOG_IDS:
+            params.append(("catalog_ids[]", cid))
+
         r = s.get(
             f"https://{domain}/api/v2/catalog/items",
-            params={
-                "search_text": query,
-                "page": 1,
-                "per_page": 48,
-                "order": "newest_first",
-                "price_from": state["min_price"],
-                "price_to": state["max_price"],
-            },
+            params=params,
             timeout=20,
         )
-        ct = r.headers.get("content-type", "")
         if r.status_code == 200:
-            if "json" not in ct:
-                log.warning(f"{domain} вернул не JSON — пересоздаю сессию")
-                init_session(domain)
-                return []
-            try:
-                # Пробуем декодировать brotli вручную если requests не справился
-                content = r.content
-                encoding = r.headers.get("content-encoding", "")
-                if encoding == "br":
-                    import brotli
-                    content = brotli.decompress(content)
-                elif encoding == "gzip":
-                    import gzip
-                    content = gzip.decompress(content)
-                import json as _json
-                data = _json.loads(content)
-                items = data.get("items", [])
-                log.info(f"{domain} → {r.status_code} | {len(items)} товаров")
-                return items
-            except Exception as e:
-                log.warning(f"{domain} decode error: {e}")
-                # Fallback — пробуем через r.json()
-                try:
-                    return r.json().get("items", [])
-                except Exception:
-                    return []
+            data = decode_response(r)
+            items = data.get("items", [])
+            if items:
+                log.info(f"{domain} → {len(items)} товаров")
+            return items
         elif r.status_code in (403, 429):
-            log.error(f"❌ {r.status_code} на {domain} — пересоздаю сессию")
+            log.error(f"❌ {r.status_code} на {domain}")
             sessions.pop(domain, None)
             return "BAN"
-        elif r.status_code == 401:
-            log.warning(f"401 на {domain}")
-            init_session(domain)
-            return []
         else:
             log.warning(f"{domain} → {r.status_code}")
             return []
@@ -143,16 +153,14 @@ def fetch_items(query: str, domain: str) -> list | str:
         return []
 
 
-def is_relevant(item: dict, brand: str) -> bool:
+def is_relevant(item, brand):
     title      = item.get("title", "").lower()
     brand_name = item.get("brand_title", "").lower()
     first_word = brand.split()[0]
-    brand_match = first_word in title or first_word in brand_name
-    no_bad      = not any(w in title for w in BAD_WORDS)
-    return brand_match and no_bad
+    return (first_word in title or first_word in brand_name) and not any(w in title for w in BAD_WORDS)
 
 
-def format_msg(item: dict, domain: str) -> str:
+def format_msg(item, domain):
     title   = item.get("title", "Без названия")
     pd      = item.get("price", {})
     price   = pd.get("amount", "?")
@@ -162,53 +170,49 @@ def format_msg(item: dict, domain: str) -> str:
     cond    = item.get("status", "")
     url     = item.get("url", "")
     link    = f"https://{domain}{url}" if url.startswith("/") else url
-    lines = [f"🏷 <b>{brand_t.upper() if brand_t else title}</b>", f"📦 {title}"]
-    if size: lines.append(f"📏 {size}")
-    if cond: lines.append(f"✨ {cond}")
-    lines += [f"💰 <b>{price} {curr}</b>", f"🔗 <a href='{link}'>СМОТРЕТЬ НА VINTED</a>"]
+    lines   = [f"🏷 <b>{brand_t.upper() if brand_t else title}</b>", f"📦 {title}"]
+    if size: lines.append(f"📏 Размер: {size}")
+    if cond: lines.append(f"✨ Состояние: {cond}")
+    lines  += [f"💰 <b>{price} {curr}</b>", f"🔗 <a href='{link}'>СМОТРЕТЬ НА VINTED</a>"]
     return "\n".join(lines)
 
+
+# ── МОНИТОРИНГ ────────────────────────────────────────────────────────────
 
 def monitor_loop():
     import asyncio
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-
     for domain in TARGET_REGIONS.values():
         init_session(domain)
         time.sleep(3)
-
-    log.info("🚀 Мониторинг запущен")
+    log.info("Мониторинг запущен")
 
     while state["running"]:
-        brands = state["brands"][:]
+        brands = list(state["active_brands"])
         random.shuffle(brands)
         state["stats"]["cycles"] += 1
-        log.info(f"🔄 Цикл #{state['stats']['cycles']}: {len(brands)} брендов")
+        log.info(f"Цикл #{state['stats']['cycles']} | {len(brands)} брендов | {state['min_price']}–{state['max_price']} EUR")
 
         for brand in brands:
             if not state["running"]: break
-
             for region, domain in TARGET_REGIONS.items():
                 if not state["running"]: break
-
                 log.info(f"🔍 {brand} / {domain}")
                 items = fetch_items(brand, domain)
-
                 if items == "BAN":
-                    wait = random.randint(60, 120)
-                    log.warning(f"⏳ Жду {wait}с...")
-                    time.sleep(wait)
+                    time.sleep(random.randint(60, 120))
                     continue
-
                 for item in (items or []):
                     iid = item.get("id")
                     if iid in state["seen_ids"]: continue
                     state["seen_ids"].add(iid)
                     if not is_relevant(item, brand): continue
-                    price = float(item.get("price", {}).get("amount", 0))
+                    try:
+                        price = float(item.get("price", {}).get("amount", 0))
+                    except (ValueError, TypeError):
+                        continue
                     if not (state["min_price"] <= price <= state["max_price"]): continue
-
                     msg = format_msg(item, domain)
                     state["stats"]["found"] += 1
                     log.info(f"✅ {item.get('title')} — {price}")
@@ -219,35 +223,84 @@ def monitor_loop():
                                 parse_mode="HTML", disable_web_page_preview=False,
                             )
                         )
-
                 time.sleep(random.uniform(12, 22))
             time.sleep(random.uniform(15, 30))
 
-        log.info(f"✅ Цикл завершён. Находок всего: {state['stats']['found']}")
         if state["running"]:
             time.sleep(state["interval"])
-
     loop.close()
 
 
+# ── КЛАВИАТУРЫ ────────────────────────────────────────────────────────────
+
 def main_kb():
-    toggle = "⏹ Стоп" if state["running"] else "▶️ СТАРТ"
+    toggle = "⏹ Остановить" if state["running"] else "▶️ Запустить"
+    status = "🟢" if state["running"] else "🔴"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(toggle, callback_data="toggle")],
-        [InlineKeyboardButton("📊 Статус", callback_data="status")],
+        [InlineKeyboardButton(f"{status} {toggle}", callback_data="toggle")],
+        [InlineKeyboardButton(f"💶 Мин: {state['min_price']}€", callback_data="set_min"),
+         InlineKeyboardButton(f"💶 Макс: {state['max_price']}€", callback_data="set_max")],
+        [InlineKeyboardButton("👕 Бренды", callback_data="brands_0"),
+         InlineKeyboardButton("📊 Статус", callback_data="status")],
     ])
 
 
+def brands_kb(page=0):
+    """Клавиатура выбора брендов — по 5 на странице."""
+    per_page = 5
+    start = page * per_page
+    chunk = ALL_BRANDS[start:start + per_page]
+    rows = []
+    for brand in chunk:
+        active = brand in state["active_brands"]
+        icon   = "✅" if active else "☐"
+        rows.append([InlineKeyboardButton(
+            f"{icon} {brand.title()}",
+            callback_data=f"brand_{brand}"
+        )])
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ Назад", callback_data=f"brands_{page-1}"))
+    if start + per_page < len(ALL_BRANDS):
+        nav.append(InlineKeyboardButton("Вперёд ▶️", callback_data=f"brands_{page+1}"))
+    if nav:
+        rows.append(nav)
+
+    rows.append([
+        InlineKeyboardButton("✅ Все", callback_data="brands_all"),
+        InlineKeyboardButton("☐ Снять все", callback_data="brands_none"),
+    ])
+    rows.append([InlineKeyboardButton("🔙 Главное меню", callback_data="back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def brands_text(page=0):
+    per_page = 5
+    start    = page * per_page
+    total    = len(ALL_BRANDS)
+    active   = len(state["active_brands"])
+    return (
+        f"<b>👕 Выбор брендов</b>\n\n"
+        f"Активных: {active} из {total}\n"
+        f"Страница {page+1}/{(total-1)//per_page+1}\n\n"
+        f"Нажми на бренд чтобы включить/выключить:"
+    )
+
+
+# ── ОБРАБОТЧИКИ ───────────────────────────────────────────────────────────
+
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     state["chat_id"] = update.effective_chat.id
-    proxy = "✅" if PROXY_URL else "❌"
+    active = len(state["active_brands"])
+    st = "🟢 работает" if state["running"] else "🔴 остановлен"
     text = (
         f"<b>🛍 Vinted Monitor</b>\n\n"
-        f"Прокси: {proxy}\n"
-        f"Брендов: {len(state['brands'])}\n"
+        f"Статус: {st}\n"
+        f"Активных брендов: {active}\n"
         f"Домены: .pl .lt .lv\n"
-        f"Цена: {state['min_price']}–{state['max_price']} PLN/EUR\n\n"
-        f"Нажми СТАРТ:"
+        f"Цена: {state['min_price']}–{state['max_price']} EUR\n\n"
+        f"Ищет только одежду, обувь и аксессуары."
     )
     await update.message.reply_text(text, reply_markup=main_kb(), parse_mode="HTML")
 
@@ -256,43 +309,174 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     state["chat_id"] = q.message.chat_id
+    data = q.data
 
-    if q.data == "toggle":
+    # ── Старт/стоп ──
+    if data == "toggle":
         if state["running"]:
             state["running"] = False
-            try:
-                await q.edit_message_text("⏹ Остановлен.", reply_markup=main_kb())
+            try: await q.edit_message_text("⏹ Мониторинг остановлен.", reply_markup=main_kb())
             except Exception: pass
         else:
+            if not state["active_brands"]:
+                await q.answer("⚠️ Выбери хотя бы один бренд!", show_alert=True)
+                return
             state["running"] = True
             threading.Thread(target=monitor_loop, daemon=True).start()
             try:
                 await q.edit_message_text(
-                    f"▶️ <b>Запущен!</b>\n\n"
-                    f"Ищу {len(state['brands'])} брендов на .pl .lt .lv",
+                    f"▶️ <b>Мониторинг запущен!</b>\n\n"
+                    f"Брендов: {len(state['active_brands'])}\n"
+                    f"Цена: {state['min_price']}–{state['max_price']} EUR\n"
+                    f"Домены: .pl .lt .lv",
                     reply_markup=main_kb(), parse_mode="HTML"
                 )
             except Exception: pass
 
-    elif q.data == "status":
-        st = state["stats"]
-        status = "🟢 работает" if state["running"] else "🔴 остановлен"
+    # ── Цена ──
+    elif data == "set_min":
+        state["awaiting"] = "min"
         try:
             await q.edit_message_text(
-                f"<b>📊 Статус</b>\n\n{status}\n"
-                f"Циклов: {st['cycles']}\nНаходок: {st['found']}\n"
-                f"Брендов: {len(state['brands'])}",
+                f"✏️ Введи <b>минимальную</b> цену в евро\n"
+                f"Сейчас: <b>{state['min_price']}€</b>\n\n"
+                f"Например: <code>10</code>",
+                parse_mode="HTML"
+            )
+        except Exception: pass
+
+    elif data == "set_max":
+        state["awaiting"] = "max"
+        try:
+            await q.edit_message_text(
+                f"✏️ Введи <b>максимальную</b> цену в евро\n"
+                f"Сейчас: <b>{state['max_price']}€</b>\n\n"
+                f"Например: <code>500</code>",
+                parse_mode="HTML"
+            )
+        except Exception: pass
+
+    # ── Статус ──
+    elif data == "status":
+        st    = state["stats"]
+        status = "🟢 работает" if state["running"] else "🔴 остановлен"
+        brands_list = ", ".join(b.title() for b in sorted(state["active_brands"])) or "нет"
+        try:
+            await q.edit_message_text(
+                f"<b>📊 Статус</b>\n\n"
+                f"{status}\n"
+                f"Циклов: {st['cycles']}\n"
+                f"Находок: {st['found']}\n"
+                f"Цена: {state['min_price']}–{state['max_price']} EUR\n"
+                f"Активных брендов: {len(state['active_brands'])}\n\n"
+                f"<b>Бренды:</b>\n{brands_list}",
                 reply_markup=main_kb(), parse_mode="HTML"
             )
         except Exception: pass
 
+    # ── Список брендов ──
+    elif data.startswith("brands_") and not data.startswith("brands_all") and not data.startswith("brands_none"):
+        try:
+            page = int(data.split("_")[1])
+        except (IndexError, ValueError):
+            page = 0
+        try:
+            await q.edit_message_text(brands_text(page), reply_markup=brands_kb(page), parse_mode="HTML")
+        except Exception: pass
+
+    elif data == "brands_all":
+        state["active_brands"] = set(ALL_BRANDS)
+        page = state.get("brands_page", 0)
+        try:
+            await q.edit_message_text(brands_text(page), reply_markup=brands_kb(page), parse_mode="HTML")
+        except Exception: pass
+
+    elif data == "brands_none":
+        state["active_brands"] = set()
+        page = state.get("brands_page", 0)
+        try:
+            await q.edit_message_text(brands_text(page), reply_markup=brands_kb(page), parse_mode="HTML")
+        except Exception: pass
+
+    # ── Переключить бренд ──
+    elif data.startswith("brand_"):
+        brand = data[6:]
+        if brand in state["active_brands"]:
+            state["active_brands"].discard(brand)
+        else:
+            state["active_brands"].add(brand)
+        # Остаёмся на той же странице
+        page = 0
+        for i, b in enumerate(ALL_BRANDS):
+            if b == brand:
+                page = i // 5
+                break
+        state["brands_page"] = page
+        try:
+            await q.edit_message_text(brands_text(page), reply_markup=brands_kb(page), parse_mode="HTML")
+        except Exception: pass
+
+    # ── Назад ──
+    elif data == "back":
+        active = len(state["active_brands"])
+        st     = "🟢 работает" if state["running"] else "🔴 остановлен"
+        try:
+            await q.edit_message_text(
+                f"<b>🛍 Vinted Monitor</b>\n\n"
+                f"Статус: {st}\n"
+                f"Активных брендов: {active}\n"
+                f"Цена: {state['min_price']}–{state['max_price']} EUR",
+                reply_markup=main_kb(), parse_mode="HTML"
+            )
+        except Exception: pass
+
+
+async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    aw   = state.get("awaiting")
+    text = update.message.text.strip().replace(",", ".")
+
+    if aw == "min":
+        try:
+            val = float(text)
+            if val >= 0:
+                state["min_price"] = val
+                state["awaiting"]  = None
+                await update.message.reply_text(
+                    f"✅ Минимальная цена: <b>{val}€</b>",
+                    parse_mode="HTML", reply_markup=main_kb()
+                )
+            else:
+                await update.message.reply_text("⚠️ Введи число больше 0", reply_markup=main_kb())
+        except ValueError:
+            await update.message.reply_text("⚠️ Нужно число, например: 10", reply_markup=main_kb())
+
+    elif aw == "max":
+        try:
+            val = float(text)
+            if val > 0:
+                state["max_price"] = val
+                state["awaiting"]  = None
+                await update.message.reply_text(
+                    f"✅ Максимальная цена: <b>{val}€</b>",
+                    parse_mode="HTML", reply_markup=main_kb()
+                )
+            else:
+                await update.message.reply_text("⚠️ Введи число больше 0", reply_markup=main_kb())
+        except ValueError:
+            await update.message.reply_text("⚠️ Нужно число, например: 500", reply_markup=main_kb())
+
+    else:
+        await update.message.reply_text("Используй /start для управления.", reply_markup=main_kb())
+
+
+# ── ЗАПУСК ────────────────────────────────────────────────────────────────
 
 def main():
     global bot_app
     if not BOT_TOKEN:
         print("❌ BOT_TOKEN не задан!")
         return
-    log.info(f"Запуск | брендов: {len(state['brands'])} | прокси: {'да' if PROXY_URL else 'нет'}")
+    log.info(f"Запуск | брендов: {len(ALL_BRANDS)} | прокси: {'да' if PROXY_URL else 'нет'}")
     builder = Application.builder().token(BOT_TOKEN)
     if PROXY_URL:
         builder = builder.proxy(PROXY_URL).get_updates_proxy(PROXY_URL)
@@ -304,6 +488,7 @@ def main():
     )
     bot_app.add_handler(CommandHandler("start", cmd_start))
     bot_app.add_handler(CallbackQueryHandler(on_button))
+    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     bot_app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=30)
 
 
