@@ -1,0 +1,11 @@
+app = "vinted-parser"
+primary_region = "iad"
+
+[env]
+  PYTHONUNBUFFERED = "1"
+  TZ = "Europe/Moscow"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
