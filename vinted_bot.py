@@ -19,11 +19,13 @@ from telegram.ext import (
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
-# Регионы мониторинга (Польша и Литва/Латвия)
 TARGET_REGIONS = {
     "pl": "www.vinted.pl",
     "lt": "www.vinted.lt"
 }
+
+# Список мусорных слов, чтобы не прилетала "хуйня"
+BAD_WORDS = ["pieluchy", "pampers", "baby", "dziecko", "dla dzieci", "подгузники", "детское", "triko"]
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -47,192 +49,131 @@ state = {
         "d&g", "maison margiela", "gucci", "burberry", "number nine", 
         "undercover", "acne studio", "supreme", "alyx", "amiri"
     ],
-    "min_price": 10,       
-    "max_price": 300,      
-    "interval": 600,       
+    "min_price": 20,       
+    "max_price": 1000,      
+    "interval": 300,       
     "pause_brands": 15,    
     "chat_id": None,
     "seen_ids": set(),
-    "stats": {"cycles": 0, "found": 0, "started_at": None},
     "awaiting_input": None,
 }
 
-monitor_thread: Optional[threading.Thread] = None
 bot_app: Optional[Application] = None
 
 # ─────────────────────────────────────────────
-#  ЛОГИКА ПАРСИНГА
+#  ЛОГИКА
 # ─────────────────────────────────────────────
 
 def fetch_items(query: str, domain: str) -> list:
     try:
-        # Инициализация сессии для получения cookie (защита от 401 ошибки)
+        # Проверка и обновление сессии
         if not HTTP.cookies.get_dict(domain=domain):
-            log.info(f"Инициализация сессии для {domain}...")
-            HTTP.get(f"https://{domain}/", timeout=15)
+            HTTP.get(f"https://{domain}/", timeout=10)
             time.sleep(2)
-
-        HTTP.headers.update({
-            "Referer": f"https://{domain}/catalog?search_text={query}",
-            "X-Requested-With": "XMLHttpRequest"
-        })
 
         r = HTTP.get(
             f"https://{domain}/api/v2/catalog/items",
-            params={
-                "search_text": query, 
-                "page": 1, 
-                "per_page": 50, 
-                "order": "newest_first"
-            },
+            params={"search_text": query, "page": 1, "per_page": 50, "order": "newest_first"},
             timeout=15,
         )
-
         if r.status_code == 401:
-            log.warning(f"Доступ 401 на {domain}. Сброс сессии...")
             HTTP.cookies.clear()
             return []
-
         r.raise_for_status()
         return r.json().get("items", [])
     except Exception as e:
-        log.warning(f"Ошибка при запросе к {domain}: {e}")
+        log.warning(f"Ошибка {domain} при поиске {query}: {e}")
         return []
 
-def check_price_range(item: dict) -> bool:
-    try:
-        price_data = item.get("price", {})
-        price = float(price_data.get("amount", 0))
-        return state["min_price"] <= price <= state["max_price"]
-    except (TypeError, ValueError):
-        return False
-
-def format_find(item: dict, brand: str, domain: str) -> str:
-    title = item.get("title", "Без названия")
-    pd = item.get("price", {})
-    price, curr = pd.get("amount", "?"), pd.get("currency_code", "")
-    url = item.get("url", "")
-    link = f"https://{domain}{url}" if url.startswith("/") else url
-
-    return (f"✅ <b>Найдено: {brand.upper()}</b>\n"
-            f"📦 {title}\n"
-            f"💰 <b>Цена: {price} {curr}</b>\n"
-            f"🌐 Регион: {domain.split('.')[-1].upper()}\n"
-            f"🔗 <a href='{link}'>Открыть на Vinted</a>")
+def is_garbage(title: str) -> bool:
+    title_lower = title.lower()
+    return any(word in title_lower for word in BAD_WORDS)
 
 # ─────────────────────────────────────────────
-#  МОНИТОРИНГ
+#  ПОТОК МОНИТОРИНГА
 # ─────────────────────────────────────────────
 
 def monitor_loop():
     import asyncio
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     while state["running"]:
-        state["stats"]["cycles"] += 1
         current_brands = list(state["brands"])
-        
+        log.info(f"Начинаю поиск по {len(current_brands)} брендам")
+
         for brand in current_brands:
             if not state["running"]: break
-
+            
             for _, domain in TARGET_REGIONS.items():
                 if not state["running"]: break
                 
+                log.info(f"Ищу {brand} на {domain}...")
                 items = fetch_items(brand, domain)
-                if not items:
-                    time.sleep(5)
-                    continue
-
-                for item in items:
+                
+                for item in (items or []):
                     iid = item.get("id")
                     if iid in state["seen_ids"]: continue
                     state["seen_ids"].add(iid)
+                    
+                    title = item.get("title", "")
+                    price = float(item.get("price", {}).get("amount", 0))
 
-                    if check_price_range(item):
-                        msg = format_find(item, brand, domain)
-                        state["stats"]["found"] += 1
-                        if state["chat_id"] and bot_app:
-                            loop.run_until_complete(
-                                bot_app.bot.send_message(
-                                    chat_id=state["chat_id"],
-                                    text=msg, parse_mode="HTML",
-                                    disable_web_page_preview=False
-                                )
-                            )
-                time.sleep(8) 
-            time.sleep(state["pause_brands"]) 
+                    # Фильтр: Бренд в названии + отсутствие мусора + цена
+                    if brand in title.lower() and not is_garbage(title):
+                        if state["min_price"] <= price <= state["max_price"]:
+                            if state["chat_id"] and bot_app:
+                                url = item.get("url", "")
+                                link = f"https://{domain}{url}" if url.startswith("/") else url
+                                msg = (f"🔥 <b>{brand.upper()}</b>\n📦 {title}\n"
+                                       f"💰 <b>{price} {item.get('price',{}).get('currency_code','')}</b>\n"
+                                       f"🔗 <a href='{link}'>ОТКРЫТЬ</a>")
+                                loop.run_until_complete(bot_app.bot.send_message(chat_id=state["chat_id"], text=msg, parse_mode="HTML"))
+                
+                time.sleep(10) # Пауза между регионами
+            time.sleep(state["pause_brands"]) # Пауза между брендами
 
         if state["running"]:
-            log.info(f"Цикл завершен. Пауза {state['interval']}с")
+            log.info(f"Цикл завершен. Сплю {state['interval']}с")
             time.sleep(state["interval"])
 
 # ─────────────────────────────────────────────
-#  ИНТЕРФЕЙС БОТА
+#  БОТ
 # ─────────────────────────────────────────────
 
 def main_kb():
-    toggle = "⏹ Остановить" if state["running"] else "▶️ Запустить"
+    toggle = "⏹ Стоп" if state["running"] else "▶️ Старт"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(toggle, callback_data="toggle")],
-        [InlineKeyboardButton("💰 Мин. цена", callback_data="set_min"),
-         InlineKeyboardButton("💰 Макс. цена", callback_data="set_max")],
-        [InlineKeyboardButton("📋 Бренды", callback_data="brands"),
-         InlineKeyboardButton("📊 Статус", callback_data="status")]
+        [InlineKeyboardButton("💰 Мин", callback_data="set_min"), InlineKeyboardButton("💰 Макс", callback_data="set_max")]
     ])
-
-def home_text():
-    st = "🟢 работает" if state["running"] else "🔴 остановлен"
-    return (f"<b>Vinted Monitor (PL/LT/LV)</b>\n\n"
-            f"Статус: {st}\n"
-            f"Диапазон: <b>{state['min_price']} — {state['max_price']}</b>\n"
-            f"Интервал круга: {state['interval']}с")
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     state["chat_id"] = update.effective_chat.id
-    await update.message.reply_text(home_text(), reply_markup=main_kb(), parse_mode="HTML")
+    await update.message.reply_text("Монитор брендов запущен. Используй кнопки:", reply_markup=main_kb())
 
 async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    
     if q.data == "toggle":
-        if state["running"]:
-            state["running"] = False
-        else:
-            state["running"] = True
-            state["stats"]["started_at"] = datetime.now()
-            threading.Thread(target=monitor_loop, daemon=True).start()
-        await q.edit_message_text(home_text(), reply_markup=main_kb(), parse_mode="HTML")
-
+        state["running"] = not state["running"]
+        if state["running"]: threading.Thread(target=monitor_loop, daemon=True).start()
+        await q.edit_message_text(f"Статус: {'Работает' if state['running'] else 'Спит'}", reply_markup=main_kb())
     elif q.data == "set_min":
         state["awaiting_input"] = "min"
-        await q.message.reply_text("Введите минимальную цену:")
-
+        await q.message.reply_text("Введи мин цену:")
     elif q.data == "set_max":
         state["awaiting_input"] = "max"
-        await q.message.reply_text("Введите максимальную цену:")
-    
-    elif q.data == "status":
-        await q.message.reply_text(f"Находок: {state['stats']['found']}\nЦиклов: {state['stats']['cycles']}")
-
-    elif q.data == "brands":
-        bl = "\n".join(f"• {b.upper()}" for b in state["brands"])
-        await q.message.reply_text(f"<b>📋 Список брендов:</b>\n\n{bl}", parse_mode="HTML")
+        await q.message.reply_text("Введи макс цену:")
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    val = update.message.text
     if state["awaiting_input"] in ["min", "max"]:
         try:
-            num = int(val)
+            num = int(update.message.text)
             if state["awaiting_input"] == "min": state["min_price"] = num
             else: state["max_price"] = num
-            await update.message.reply_text(f"✅ Цена обновлена!", reply_markup=main_kb())
-        except:
-            await update.message.reply_text("⚠️ Введите число.")
+            await update.message.reply_text("✅ Обновлено", reply_markup=main_kb())
+        except: await update.message.reply_text("⚠️ Введи число")
         state["awaiting_input"] = None
 
 def main():
@@ -243,7 +184,6 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    log.info("Бот запущен")
     app.run_polling()
 
 if __name__ == "__main__":
