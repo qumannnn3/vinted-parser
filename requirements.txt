@@ -1,4 +1,4 @@
 requests
-python-telegram-bot[socks]==20.7
+python-telegram-bot[socks]==21.11.1
 brotli
 mercapi==0.4.2
