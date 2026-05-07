@@ -11,6 +11,7 @@ from shared import (
     PROXY_URL,
     USER_AGENTS,
     age_in_range,
+    brand_match_terms,
     format_msk_timestamp,
     get_fx_rate,
     keyword_matches_text,
@@ -20,6 +21,7 @@ from shared import (
     publish_age_hours,
     state,
     translate_to_ru,
+    _has_any_term,
 )
 
 FRUITS_GRAPHQL_URL = "https://web-server.production.fruitsfamily.com/graphql"
@@ -92,10 +94,7 @@ def fruits_matches_keyword(item, keyword):
 
 
 def fruits_matches_brand(item, brand):
-    text = _text_blob(item)
-    brand_l = brand.lower()
-    first = brand_l.split()[0]
-    return brand_l in text or first in text or brand_l in str(item.get("brand") or "").lower()
+    return _has_any_term(_text_blob(item), brand_match_terms(brand))
 
 
 def is_relevant_fruits_item(item, brand):
