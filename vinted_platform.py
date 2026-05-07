@@ -32,6 +32,10 @@ from shared import (
 
 vinted_sessions: dict[str, requests.Session] = {}
 
+VINTED_MIN_MARKET_SAMPLES = 5
+VINTED_MAX_MARKET_RATIO = 0.80
+VINTED_MARKET_PRICE_MAX_EUR = 5000
+
 
 def make_vinted_session(domain):
     session = requests.Session()
@@ -83,11 +87,15 @@ def decode_response(response):
             return {}
 
 
-def fetch_vinted(query, domain, retry=True):
+def fetch_vinted(query, domain, retry=True, price_min=None, price_max=None):
     session = get_vinted_session(domain)
     session.headers["User-Agent"] = random.choice(USER_AGENTS)
     try:
         price_from, price_to, currency = vinted_price_bounds(domain)
+        if price_min is not None:
+            price_from = float(price_min)
+        if price_max is not None:
+            price_to = float(price_max)
         params = [
             ("search_text", query),
             ("page", 1),
@@ -120,7 +128,7 @@ def fetch_vinted(query, domain, retry=True):
             log.warning("Vinted session expired %s, обновляю cookies", domain)
             vinted_sessions.pop(domain, None)
             init_vinted(domain)
-            return fetch_vinted(query, domain, retry=False)
+            return fetch_vinted(query, domain, retry=False, price_min=price_min, price_max=price_max)
         if response.status_code in (403, 429):
             log.error("Vinted BAN %s %s", response.status_code, domain)
             vinted_sessions.pop(domain, None)
@@ -197,9 +205,57 @@ def vinted_matches_keyword(item, keyword):
     return keyword_matches_text(_vinted_text_blob(item), keyword)
 
 
+def vinted_matches_brand(item, brand):
+    return _has_any_term(_vinted_text_blob(item), brand_match_terms(brand))
+
+
+def vinted_fashion_kind(item):
+    text = _vinted_text_blob(item)
+    groups = [
+        ("shoes", ["sneaker", "sneakers", "shoe", "shoes", "boots", "loafer", "sandals", "обувь", "кроссовки", "ботинки"]),
+        ("bag", ["bag", "backpack", "wallet", "shoulder bag", "tote", "pouch", "сумка", "рюкзак", "кошелек"]),
+        ("tops", ["shirt", "t-shirt", "tee", "hoodie", "sweatshirt", "sweater", "knit", "cardigan", "top", "рубашка", "худи", "свитер"]),
+        ("outerwear", ["jacket", "coat", "parka", "blazer", "vest", "down", "куртка", "пальто", "жилет"]),
+        ("bottoms", ["pants", "jeans", "denim", "trousers", "shorts", "skirt", "брюки", "джинсы", "шорты", "юбка"]),
+        ("dress", ["dress", "платье"]),
+        ("accessory", ["cap", "hat", "beanie", "belt", "scarf", "gloves", "sunglasses", "кепка", "шапка", "ремень", "шарф"]),
+    ]
+    for kind, terms in groups:
+        if any(term in text for term in terms):
+            return kind
+    return "other"
+
+
+def _vinted_price_eur(item):
+    price_data = item.get("price", {}) or {}
+    try:
+        amount = float(price_data.get("amount", 0))
+    except (TypeError, ValueError):
+        return 0
+    return vinted_price_to_eur(amount, price_data.get("currency_code", "EUR"))
+
+
+def vinted_market_price_eur(items, target_item, brand, keyword=None):
+    from market_price import calculate_market_price
+
+    return calculate_market_price(
+        items,
+        target_item,
+        price_getter=_vinted_price_eur,
+        id_getter=lambda item: item.get("id"),
+        item_filter=lambda item: (
+            vinted_matches_brand(item, brand)
+            and is_deep_fashion_vinted_item(item)
+            and (not keyword or vinted_matches_keyword(item, keyword))
+        ),
+        kind_getter=vinted_fashion_kind,
+        min_samples=VINTED_MIN_MARKET_SAMPLES,
+    )
+
+
 def is_relevant(item, brand):
     text = _vinted_text_blob(item)
-    if not _has_any_term(text, brand_match_terms(brand)):
+    if not vinted_matches_brand(item, brand):
         return False
     if not is_deep_fashion_vinted_item(item):
         log.info("SKIP Vinted deep fashion filter: %s", item.get("title", "?")[:40])
@@ -216,7 +272,7 @@ def is_relevant(item, brand):
     return True
 
 
-def format_vinted_message(item, domain, title, title_ru, price, curr, link, ts_d, brand_title, size, condition):
+def format_vinted_message(item, domain, title, title_ru, price, curr, link, ts_d, brand_title, size, condition, market_line=""):
     country = domain.rsplit(".", 1)[-1].upper()
     seller = item.get("user", {}) or {}
     seller_name = html.escape(str(seller.get("login") or seller.get("username") or "не указан"))
@@ -237,7 +293,7 @@ def format_vinted_message(item, domain, title, title_ru, price, curr, link, ts_d
         f"<b>Vinted {country}</b>\n"
         f"<b>{title_safe}</b>\n"
         f"{meta}"
-        f"<b>Цена:</b> {price_line}\n"
+        f"<b>Цена:</b> {price_line}{market_line}\n"
         f"<b>Публикация:</b> {posted}\n"
         f"<b>Продавец:</b> {seller_name}\n\n"
         f"<a href='{link_safe}'>Открыть объявление</a>"
@@ -292,6 +348,10 @@ def vinted_loop(bot_app):
                     if items == "BAN":
                         time.sleep(random.randint(60, 120))
                         continue
+                    market_items = fetch_vinted(query, domain, price_min=1, price_max=VINTED_MARKET_PRICE_MAX_EUR)
+                    if market_items == "BAN":
+                        market_items = items
+                    market_items = market_items or items
                     for item in items or []:
                         iid = item.get("id")
                         if iid in state["vinted_seen"]:
@@ -329,8 +389,20 @@ def vinted_loop(bot_app):
                             photo = photos[0]
                             photo_url = photo.get("full_size_url") or photo.get("url") or photo.get("thumb_url", "")
 
+                        market = vinted_market_price_eur(market_items, item, brand, keyword)
+                        if not market:
+                            log.info("SKIP Vinted no market sample: %s", title[:60])
+                            continue
+                        market_eur = float(market["price"])
+                        market_count = int(market["count"])
+                        if price_eur > market_eur * VINTED_MAX_MARKET_RATIO:
+                            log.info("SKIP Vinted not under market %.2f/%.2f: %s", price_eur, market_eur, title[:60])
+                            continue
+                        discount = max(0, round((1 - price_eur / market_eur) * 100))
+                        market_line = f"\n<b>Рынок:</b> ~{market_eur:.0f} EUR, ниже на {discount}% · {market_count} сравн."
+
                         msg = format_vinted_message(
-                            item, domain, title, title_ru, price, curr, link, ts_d, brand_title, size, condition
+                            item, domain, title, title_ru, price, curr, link, ts_d, brand_title, size, condition, market_line
                         )
                         state["vinted_seen"].add(iid)
                         state["vinted_stats"]["found"] += 1
