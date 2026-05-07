@@ -8,6 +8,7 @@ import time
 import requests
 
 from shared import (
+    ALL_BRANDS,
     BAD_WORDS,
     CATALOG_IDS,
     DEEP_FASHION_BLOCKED_WORDS,
@@ -113,6 +114,8 @@ def fetch_vinted(query, domain, retry=True, price_min=None, price_max=None):
             items = decode_response(response).get("items", [])
             if items:
                 log.info("Vinted %s -> %s товаров", domain, len(items))
+            else:
+                log.info("Vinted %s -> 0 товаров query=%r", domain, query)
                 if not state["_vinted_debug_done"]:
                     item0 = items[0]
                     log.info("DEBUG keys: %s", list(item0.keys()))
@@ -133,6 +136,7 @@ def fetch_vinted(query, domain, retry=True, price_min=None, price_max=None):
             log.error("Vinted BAN %s %s", response.status_code, domain)
             vinted_sessions.pop(domain, None)
             return "BAN"
+        log.warning("Vinted empty/error response %s %s query=%r body=%s", response.status_code, domain, query, response.text[:200])
         return []
     except Exception as e:
         log.warning("fetch_vinted %s: %s", domain, e)
@@ -327,16 +331,17 @@ async def _send_vinted_item(bot_app, photo_url, msg):
             log.warning("Vinted send_message failed for chat %s: %s", chat_id, e)
 
 
-def vinted_loop(bot_app):
+def _vinted_loop_inner(bot_app):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     for domain in VINTED_REGIONS.values():
         init_vinted(domain)
         time.sleep(2)
     log.info("Vinted мониторинг запущен")
+    log.info("Vinted active brands: %s", len(state["active_brands"] or ALL_BRANDS))
 
     while state["vinted_running"]:
-        brands = list(state["active_brands"])
+        brands = list(state["active_brands"] or ALL_BRANDS)
         random.shuffle(brands)
         state["vinted_stats"]["cycles"] += 1
 
@@ -419,3 +424,13 @@ def vinted_loop(bot_app):
         if state["vinted_running"]:
             time.sleep(state["vinted_interval"])
     loop.close()
+
+def vinted_loop(bot_app):
+    while state["vinted_running"]:
+        try:
+            _vinted_loop_inner(bot_app)
+        except Exception as e:
+            log.exception("Vinted loop crashed: %s", e)
+            time.sleep(15)
+        else:
+            break
