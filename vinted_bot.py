@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import logging, time, threading, os, random, requests, json as _json, gzip, re
 from datetime import datetime, timezone
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
@@ -1196,6 +1196,11 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(main_text(), reply_markup=main_kb(), parse_mode="HTML")
 
+async def setup_bot_commands(app):
+    await app.bot.set_my_commands([
+        BotCommand("start", "🤖 Главное меню"),
+    ])
+
 def main():
     global bot_app
     if not BOT_TOKEN:
@@ -1217,6 +1222,7 @@ def main():
         builder
         .connect_timeout(30).read_timeout(30)
         .write_timeout(30).pool_timeout(30)
+        .post_init(setup_bot_commands)
         .build()
     )
     bot_app.add_handler(CommandHandler("start", cmd_start))
