@@ -307,7 +307,10 @@ async def _send_vinted_item(bot_app, photo_url, msg):
     for chat_id in chat_ids:
         if photo_url:
             try:
-                await bot_app.bot.send_photo(chat_id=chat_id, photo=photo_url, caption=msg, parse_mode="HTML")
+                await bot_app.bot.send_document(chat_id=chat_id, photo=photo_url, caption=msg, parse_mode="HTML",
+            filename="image.jpg",
+            disable_content_type_detection=True
+        )
                 continue
             except Exception as e:
                 log.warning("Vinted send_photo failed for chat %s: %s", chat_id, e)
@@ -387,7 +390,7 @@ def vinted_loop(bot_app):
                         photo_url = ""
                         if photos:
                             photo = photos[0]
-                            photo_url = photo.get("full_size_url") or photo.get("url") or photo.get("thumb_url", "")
+                            photo_url = (photo.get("full_size_url") or photo.get("url") or photo.get("thumb_url", "")).split("?")[0].replace("small_", "full_")
 
                         market = vinted_market_price_eur(market_items, item, brand, keyword)
                         if not market:
