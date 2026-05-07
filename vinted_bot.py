@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import logging, time, threading, os, random, requests, json as _json, gzip, re, html
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
@@ -14,6 +14,14 @@ VINTED_REGIONS = {
 }
 CATALOG_IDS = [1, 3, 5, 9, 7, 12]
 MAX_AGE_HOURS = 24
+try:
+    MERCARI_MIN_MARKET_SAMPLES = max(3, int(os.environ.get("MERCARI_MIN_MARKET_SAMPLES", "5")))
+except ValueError:
+    MERCARI_MIN_MARKET_SAMPLES = 5
+try:
+    MERCARI_MAX_MARKET_RATIO = float(os.environ.get("MERCARI_MAX_MARKET_RATIO", "0.95"))
+except ValueError:
+    MERCARI_MAX_MARKET_RATIO = 0.95
 
 BAD_WORDS = [
     "pieluchy","pampers","baby","dziecko","dla dzieci","подгузники","детское",
@@ -34,6 +42,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 _eur_rate_cache = {"rate": None, "ts": 0}
 _fx_rate_cache = {}
+MSK_TZ = timezone(timedelta(hours=3), "MSK")
 
 def get_jpy_to_eur() -> float:
     now = time.time()
@@ -88,6 +97,55 @@ def vinted_price_bounds(domain: str) -> tuple[float, float, str]:
 def vinted_price_to_eur(price: float, currency: str) -> float:
     return float(price) * get_fx_rate(currency or "EUR", "EUR")
 
+def format_msk_timestamp(ts) -> str:
+    if not ts:
+        return "не указано"
+    parsed = _try_parse_ts(ts)
+    if not parsed:
+        return "не указано"
+    return datetime.fromtimestamp(parsed, tz=timezone.utc).astimezone(MSK_TZ).strftime("%d-%m-%Y в %H:%M МСК")
+
+def format_msk_now() -> str:
+    return datetime.now(MSK_TZ).strftime("%d-%m-%Y в %H:%M МСК")
+
+def _age_label(hours):
+    return f"{int(hours)}ч" if hours == int(hours) else f"{hours:g}ч"
+
+def age_range_label(min_hours, max_hours):
+    min_hours = float(min_hours or 0)
+    max_hours = float(max_hours or 0)
+    if min_hours <= 0:
+        return f"до {_age_label(max_hours)}"
+    return f"{_age_label(min_hours)}–{_age_label(max_hours)}"
+
+def parse_age_range(text):
+    nums = [n.replace(",", ".") for n in re.findall(r"\d+(?:[.,]\d+)?", text or "")]
+    if not nums:
+        raise ValueError
+    if len(nums) == 1:
+        min_hours = 0.0
+        max_hours = float(nums[0])
+    else:
+        min_hours = float(nums[0])
+        max_hours = float(nums[1])
+    if min_hours < 0 or max_hours <= 0 or min_hours >= max_hours:
+        raise ValueError
+    return min_hours, max_hours
+
+def publish_age_hours(ts):
+    parsed = _try_parse_ts(ts)
+    if not parsed:
+        return None
+    return (time.time() - parsed) / 3600
+
+def age_in_range(ts, min_hours, max_hours):
+    age = publish_age_hours(ts)
+    if age is None:
+        return None
+    if age < -1:
+        return False
+    return float(min_hours) <= age <= float(max_hours)
+
 def translate_to_ru(text: str) -> str:
     if not text or not text.strip():
         return text
@@ -121,6 +179,7 @@ state = {
     "vinted_running": False,
     "vinted_min": 10,
     "vinted_max": 500,
+    "vinted_min_age_hours": 0,
     "vinted_max_age_hours": MAX_AGE_HOURS,
     "vinted_interval": 300,
     "vinted_seen": set(),
@@ -130,6 +189,8 @@ state = {
     "mercari_running": False,
     "mercari_min": 1000,
     "mercari_max": 50000,
+    "mercari_min_age_hours": 0,
+    "mercari_max_age_hours": MAX_AGE_HOURS,
     "mercari_interval": 300,
     "mercari_seen": set(),
     "mercari_stats": {"found": 0, "cycles": 0},
@@ -234,6 +295,19 @@ def fetch_vinted(query, domain, retry=True):
 def _try_parse_ts(val) -> float | None:
     if val is None:
         return None
+    if isinstance(val, datetime):
+        dt = val if val.tzinfo else val.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    if hasattr(val, "seconds"):
+        try:
+            return _try_parse_ts(float(val.seconds))
+        except (TypeError, ValueError):
+            pass
+    if hasattr(val, "timestamp") and callable(val.timestamp):
+        try:
+            return _try_parse_ts(float(val.timestamp()))
+        except (TypeError, ValueError, OSError):
+            pass
     if isinstance(val, (int, float)):
         ts = float(val)
         if 1577836800000 < ts < 1893456000000:
@@ -313,18 +387,19 @@ def is_relevant(item, brand):
     word   = brand.split()[0]
     if not (word in title or word in brand2):
         return False
+    if not is_deep_fashion_vinted_item(item):
+        log.info(f"SKIP Vinted deep fashion filter: {item.get('title','?')[:40]}")
+        return False
     if any(w in title for w in BAD_WORDS):
         return False
     ts = parse_vinted_ts(item)
     if ts is None:
         log.info(f"SKIP no publish time id={item.get('id')} '{item.get('title','?')[:40]}'")
         return False
-    age_hours = (time.time() - ts) / 3600
-    if age_hours < -1:
-        log.info(f"SKIP future ts {age_hours:.1f}h: {item.get('title','?')[:40]}")
-        return False
-    if age_hours > state["vinted_max_age_hours"]:
-        log.info(f"SKIP old {age_hours:.1f}h: {item.get('title','?')[:40]}")
+    age_ok = age_in_range(ts, state["vinted_min_age_hours"], state["vinted_max_age_hours"])
+    age_hours = publish_age_hours(ts)
+    if age_ok is False:
+        log.info(f"SKIP Vinted age {age_hours:.1f}h: {item.get('title','?')[:40]}")
         return False
     return True
 
@@ -415,14 +490,14 @@ def vinted_loop():
                                 loop.run_until_complete(
                                     bot_app.bot.send_message(
                                         chat_id=state["chat_id"], text=msg,
-                                        parse_mode="HTML", disable_web_page_preview=False,
+                                        parse_mode="HTML", disable_web_page_preview=True,
                                     )
                                 )
                         else:
                             loop.run_until_complete(
                                 bot_app.bot.send_message(
                                     chat_id=state["chat_id"], text=msg,
-                                    parse_mode="HTML", disable_web_page_preview=False,
+                                    parse_mode="HTML", disable_web_page_preview=True,
                                 )
                             )
                 time.sleep(random.uniform(10, 18))
@@ -486,11 +561,31 @@ MERCARI_BLOCKED_WORDS += [
 MERCARI_KIND_GROUPS = [
     ("shoes", ["sneaker", "sneakers", "shoe", "shoes", "boots", "loafer", "loafers", "sandals", "スニーカー", "シューズ", "靴", "ブーツ", "サンダル"]),
     ("bag", ["bag", "bags", "backpack", "wallet", "shoulder bag", "tote", "pouch", "バッグ", "リュック", "財布", "ショルダーバッグ", "トート", "ポーチ"]),
-    ("tops", ["shirt", "t-shirt", "tee", "hoodie", "sweatshirt", "sweat", "sweater", "knit", "cardigan", "polo", "シャツ", "tシャツ", "パーカー", "スウェット", "ニット", "カーディガン"]),
-    ("outerwear", ["jacket", "coat", "blouson", "vest", "parka", "down jacket", "ジャケット", "コート", "ブルゾン", "ベスト", "ダウン"]),
-    ("bottoms", ["pants", "jeans", "denim", "trousers", "shorts", "skirt", "cargo", "パンツ", "デニム", "ジーンズ", "ショーツ", "スカート"]),
+    ("tops", ["shirt", "t-shirt", "tee", "hoodie", "sweatshirt", "sweat", "sweater", "knit", "cardigan", "polo", "top", "blouse", "シャツ", "tシャツ", "パーカー", "スウェット", "ニット", "カーディガン", "ブラウス", "トップス"]),
+    ("outerwear", ["jacket", "coat", "blouson", "vest", "parka", "down jacket", "windbreaker", "ジャケット", "コート", "ブルゾン", "ベスト", "ダウン", "アウター"]),
+    ("bottoms", ["pants", "jeans", "denim", "trousers", "shorts", "skirt", "cargo", "slacks", "パンツ", "デニム", "ジーンズ", "ショーツ", "スカート", "スラックス"]),
+    ("dress", ["dress", "one piece", "one-piece", "ワンピース", "ドレス"]),
     ("accessory", ["cap", "hat", "beanie", "belt", "scarf", "gloves", "sunglasses", "帽子", "キャップ", "ハット", "ニット帽", "ベルト", "マフラー", "手袋", "サングラス"]),
 ]
+
+DEEP_FASHION_BLOCKED_WORDS = [
+    "novelty", "ノベルティ", "sample", "gift", "promo", "limited gift", "付録",
+    "mirror", "ミラー", "鏡", "basket", "バスケット", "籠", "かご",
+    "cosmetic", "makeup", "化粧", "メイク", "ポーチのみ", "case only",
+    "tableware", "plate", "cup", "mug", "bottle", "glass", "皿", "カップ", "マグ",
+    "interior", "home", "room", "blanket", "pillow", "towel", "rug",
+    "キッチン", "インテリア", "タオル", "ブランケット", "クッション",
+    "baby", "kids", "child", "children", "ベビー", "キッズ", "子供",
+]
+
+DEEP_FASHION_SIZE_PATTERN = re.compile(
+    r"(?<![a-z0-9])("
+    r"xxs|xs|s|m|l|xl|xxl|xxxl|"
+    r"it\s?\d{2}|eu\s?\d{2}|jp\s?\d{1,2}|us\s?\d{1,2}|"
+    r"\d{2}(?:\.\d)?\s?cm"
+    r")(?![a-z0-9])",
+    re.IGNORECASE,
+)
 
 def _mercari_text_blob(item):
     parts = []
@@ -515,6 +610,26 @@ def _contains_term(text, term):
 
 def _has_any_term(text, terms):
     return any(_contains_term(text, term) for term in terms)
+
+def _vinted_text_blob(item):
+    parts = []
+    for key in ("title", "brand_title", "size_title", "status", "description"):
+        val = item.get(key) if isinstance(item, dict) else ""
+        if val:
+            parts.append(str(val))
+    for path in ("item_box.accessibility_label", "photo.accessibility_label", "catalog_title"):
+        val = _get_nested(item, path)
+        if val:
+            parts.append(str(val))
+    return " ".join(parts).lower()
+
+def is_deep_fashion_vinted_item(item):
+    text = _vinted_text_blob(item)
+    if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
+        return False
+    if _has_any_term(text, BAD_WORDS):
+        return False
+    return True
 
 def _brand_tokens(brand):
     tokens = [brand.lower()]
@@ -544,10 +659,7 @@ def _brand_tokens(brand):
     return [token for token in dict.fromkeys(tokens) if token]
 
 def is_relevant_mercari_item(item):
-    text = _mercari_text_blob(item)
-    if _has_any_term(text, MERCARI_BLOCKED_WORDS):
-        return False
-    return bool(mercari_item_kind(item))
+    return bool(deep_fashion_kind(item))
 
 def mercari_matches_brand(item, brand):
     text = _mercari_text_blob(item)
@@ -570,6 +682,19 @@ def mercari_item_kind(item):
             return kind
     return ""
 
+def deep_fashion_kind(item):
+    text = _mercari_text_blob(item)
+    if _has_any_term(text, MERCARI_BLOCKED_WORDS):
+        return ""
+    if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
+        return ""
+    kind = mercari_item_kind(item)
+    if kind:
+        return kind
+    if DEEP_FASHION_SIZE_PATTERN.search(text):
+        return "clothing"
+    return ""
+
 def _median(values):
     values = sorted(values)
     if not values:
@@ -580,7 +705,9 @@ def _median(values):
     return int((values[mid - 1] + values[mid]) / 2)
 
 def mercari_market_price_jpy(items, target_item, brand):
-    target_kind = mercari_item_kind(target_item)
+    target_kind = deep_fashion_kind(target_item)
+    if not target_kind:
+        return None
     target_id = target_item.get("id")
     prices = []
     for item in items or []:
@@ -594,14 +721,16 @@ def mercari_market_price_jpy(items, target_item, brand):
             continue
         if not mercari_matches_brand(item, brand):
             continue
-        if not is_relevant_mercari_item(item):
-            continue
-        if mercari_item_kind(item) != target_kind:
+        if deep_fashion_kind(item) != target_kind:
             continue
         prices.append(price)
-    if len(prices) < 3:
+    if len(prices) < MERCARI_MIN_MARKET_SAMPLES:
         return None
-    return _median(prices)
+    prices = sorted(prices)
+    if len(prices) >= 7:
+        cut = max(1, int(len(prices) * 0.1))
+        prices = prices[cut:-cut] or prices
+    return {"price": _median(prices), "count": len(prices)}
 
 def _mercari_item_id_from_url(url):
     if not url:
@@ -631,6 +760,12 @@ def _normalize_mercari_item(item):
     brand = _obj_get(item, "brand", "brand_name", "brandName", default="")
     category = _obj_get(item, "category", "category_name", "categoryName", "category_id", "categoryId", default="")
     description = _obj_get(item, "description", "item_description", default="")
+    created_at = _obj_get(
+        item,
+        "created", "created_at", "createdAt", "created_time", "createdTime",
+        "created_timestamp", "createdTimestamp", "listed_at", "listedAt",
+        default=None,
+    )
     thumbnails = _obj_get(item, "thumbnails", "item_images", "images", default=[]) or []
     thumb = _obj_get(item, "imageURL", "image_url", "thumbnail", default="")
     if not thumb and thumbnails:
@@ -647,6 +782,7 @@ def _normalize_mercari_item(item):
         "category": category,
         "category_id": _obj_get(item, "category_id", "categoryId", default=""),
         "description": description,
+        "created_at": created_at,
         "url": url,
         "thumbnails": [{"url": thumb}] if thumb else [],
     }
@@ -766,6 +902,19 @@ def mercari_loop():
                 if not is_relevant_mercari_item(item):
                     log.info(f"SKIP Mercari category: {name[:60]}")
                     continue
+                if not item.get("created_at"):
+                    log.info(f"SKIP Mercari no publish time: {name[:60]}")
+                    continue
+                age_ok = age_in_range(
+                    item.get("created_at"),
+                    state["mercari_min_age_hours"],
+                    state["mercari_max_age_hours"],
+                )
+                if age_ok is False:
+                    age_hours = publish_age_hours(item.get("created_at"))
+                    age_label = f"{age_hours:.1f}h" if age_hours is not None else "unknown"
+                    log.info(f"SKIP Mercari age {age_label}: {name[:60]}")
+                    continue
 
                 thumbs    = item.get("thumbnails") or item.get("item_images") or []
                 thumb     = (thumbs[0].get("url") or thumbs[0].get("image_url", "")) if thumbs else ""
@@ -778,18 +927,28 @@ def mercari_loop():
                 name_ru   = translate_to_ru(name)
                 rate      = get_jpy_to_eur()
                 eur       = round(price * rate, 2) if rate else None
-                market_jpy = mercari_market_price_jpy(items, item, brand)
-                if market_jpy and price > market_jpy * 0.95:
+                market = mercari_market_price_jpy(items, item, brand)
+                if not market:
+                    log.info(f"SKIP Mercari no market sample: {name[:60]}")
+                    continue
+                market_jpy = int(market["price"])
+                market_count = int(market["count"])
+                if price > market_jpy * MERCARI_MAX_MARKET_RATIO:
                     log.info(f"SKIP Mercari not under market {price}/{market_jpy}: {name[:60]}")
                     continue
+                discount = max(0, round((1 - price / market_jpy) * 100))
                 if eur:
-                    if market_jpy:
-                        market_eur = round(market_jpy * rate, 0)
-                        price_str  = f"сайт: ¥{price:,} = {eur:.0f}€ / рынок: ~{market_eur:.0f}€"
-                    else:
-                        price_str  = f"сайт: ¥{price:,} = {eur:.0f}€ / рынок: мало данных"
+                    market_eur = round(market_jpy * rate, 0)
+                    price_str = (
+                        f"¥{price:,} (~{eur:.0f} EUR)\n"
+                        f"<b>Рынок:</b> ~¥{market_jpy:,} (~{market_eur:.0f} EUR), "
+                        f"ниже на {discount}% · {market_count} сравн."
+                    )
                 else:
-                    price_str = f"сайт: ¥{price:,} / рынок: мало данных"
+                    price_str = (
+                        f"¥{price:,}\n"
+                        f"<b>Рынок:</b> ~¥{market_jpy:,}, ниже на {discount}% · {market_count} сравн."
+                    )
 
                 lines = [
                     "🔔 <b>Новый товар!</b>",
@@ -818,7 +977,7 @@ def mercari_loop():
                                 loop.run_until_complete(
                                     bot_app.bot.send_message(
                                         chat_id=state["chat_id"], text=msg,
-                                        parse_mode="HTML", disable_web_page_preview=False,
+                                        parse_mode="HTML", disable_web_page_preview=True,
                                     )
                                 )
                             except Exception as e2:
@@ -828,7 +987,7 @@ def mercari_loop():
                             loop.run_until_complete(
                                 bot_app.bot.send_message(
                                     chat_id=state["chat_id"], text=msg,
-                                    parse_mode="HTML", disable_web_page_preview=False,
+                                    parse_mode="HTML", disable_web_page_preview=True,
                                 )
                             )
                         except Exception as e:
@@ -1077,7 +1236,7 @@ def format_vinted_message(item, domain, title, title_ru, price, curr, link, phot
     country = domain.rsplit(".", 1)[-1].upper()
     seller = item.get("user", {}) or {}
     seller_name = html.escape(str(seller.get("login") or seller.get("username") or "не указан"))
-    posted = datetime.fromtimestamp(ts_d).strftime("%d-%m-%Y в %H:%M") if ts_d else "только что"
+    posted = format_msk_timestamp(ts_d)
     details = []
     if brand_t:
         details.append(str(brand_t))
@@ -1085,11 +1244,9 @@ def format_vinted_message(item, domain, title, title_ru, price, curr, link, phot
         details.append(str(size))
     if cond:
         details.append(str(cond))
-    category = html.escape(" / ".join(details) if details else "Все")
+    details_line = html.escape(" / ".join(details))
     title_safe = html.escape(str(title_ru or title))
     link_safe = html.escape(str(link), quote=True)
-    photo_safe = html.escape(str(photo_url or link), quote=True)
-    domain_safe = html.escape(f"https://{domain}", quote=True)
     price_line = f"{price:g} {html.escape(str(curr))}"
     try:
         price_eur = vinted_price_to_eur(price, curr)
@@ -1097,52 +1254,35 @@ def format_vinted_message(item, domain, title, title_ru, price, curr, link, phot
             price_line += f" (~{price_eur:.2f} EUR)"
     except Exception:
         pass
+    meta = f"{details_line}\n\n" if details_line else ""
     return (
-        f"⚭ <b>Страна:</b> {country}\n"
-        f"□ <b>Категория:</b> {category}\n\n"
-        f"▣ <b>Название:</b> {title_safe}\n"
-        f"▣ <b>Цена:</b> {price_line}\n\n"
-        f"◷ <b>Публикация:</b> {posted}\n\n"
-        f"☮ <b>Продавец:</b> {seller_name}\n\n"
-        "┌ <b>Объявления:</b> 1\n"
-        "├ <b>Продажи:</b> 0\n"
-        "├ <b>Покупки:</b> 0\n"
-        "├ <b>Отзывы:</b> 0\n"
-        f"└ <b>Регистрация:</b> {datetime.now().strftime('%d-%m-%Y')}\n\n"
-        f"🔗 <a href='{link_safe}'>Ссылка на объявление</a>\n"
-        f"🔗 <a href='{domain_safe}'>Ссылка на площадку</a>\n"
-        f"🔗 <a href='{link_safe}'>Ссылка на чат</a>\n"
-        f"🔗 <a href='{photo_safe}'>Ссылка на фото</a>\n\n"
-        "👁 <i>0 просмотров</i>"
+        f"<b>Vinted {country}</b>\n"
+        f"<b>{title_safe}</b>\n"
+        f"{meta}"
+        f"<b>Цена:</b> {price_line}\n"
+        f"<b>Публикация:</b> {posted}\n"
+        f"<b>Продавец:</b> {seller_name}\n\n"
+        f"<a href='{link_safe}'>Открыть объявление</a>"
     )
 
 def format_mercari_message(item, name, name_ru, price, price_str, link, thumb):
     seller = item.get("seller") if isinstance(item, dict) else None
     seller_name = html.escape(str((seller or {}).get("name") or (seller or {}).get("id") or "не указан"))
     title_safe = html.escape(str(name_ru or name))
-    price_safe = html.escape(str(price_str))
+    price_safe = str(price_str)
     link_safe = html.escape(str(link), quote=True)
-    thumb_safe = html.escape(str(thumb or link), quote=True)
+    posted = format_msk_timestamp(item.get("created_at")) if isinstance(item, dict) else "не указано"
     return (
-        "⚭ <b>Страна:</b> JP\n"
-        "□ <b>Категория:</b> Mercari\n\n"
-        f"▣ <b>Название:</b> {title_safe}\n"
-        f"▣ <b>Цена:</b> {price_safe}\n\n"
-        f"◷ <b>Публикация:</b> {datetime.now().strftime('%d-%m-%Y в %H:%M')}\n\n"
-        f"☮ <b>Продавец:</b> {seller_name}\n\n"
-        "┌ <b>Объявления:</b> 1\n"
-        "├ <b>Продажи:</b> 0\n"
-        "├ <b>Покупки:</b> 0\n"
-        "└ <b>Отзывы:</b> 0\n\n"
-        f"🔗 <a href='{link_safe}'>Ссылка на объявление</a>\n"
-        "🔗 <a href='https://jp.mercari.com'>Ссылка на площадку</a>\n"
-        f"🔗 <a href='{link_safe}'>Ссылка на чат</a>\n"
-        f"🔗 <a href='{thumb_safe}'>Ссылка на фото</a>\n\n"
-        "👁 <i>0 просмотров</i>"
+        "<b>Mercari JP</b>\n"
+        f"<b>{title_safe}</b>\n\n"
+        f"<b>Цена:</b> {price_safe}\n"
+        f"<b>Публикация:</b> {posted}\n"
+        f"<b>Продавец:</b> {seller_name}\n\n"
+        f"<a href='{link_safe}'>Открыть объявление</a>"
     )
 
 def _age_label(hours):
-    return f"{int(hours)} часа" if hours == int(hours) else f"{hours} часа"
+    return f"{int(hours)}ч" if hours == int(hours) else f"{hours:g}ч"
 
 def _market_title(market=None):
     market = market or state.get("current_market") or "vinted"
@@ -1162,10 +1302,12 @@ def main_text():
         "└ Выбери площадку для мониторинга\n\n"
         f"🇯🇵 <b>Mercari.jp</b>\n"
         f"└ Статус: {'работает' if state['mercari_running'] else 'остановлен'}\n"
-        f"└ Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥\n\n"
+        f"└ Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥\n"
+        f"└ Публикация: {age_range_label(state['mercari_min_age_hours'], state['mercari_max_age_hours'])}\n\n"
         f"🌍 <b>Vinted</b>\n"
         f"└ Статус: {'работает' if state['vinted_running'] else 'остановлен'}\n"
-        f"└ Цена: {state['vinted_min']}–{state['vinted_max']}€"
+        f"└ Цена: {state['vinted_min']}–{state['vinted_max']}€\n"
+        f"└ Публикация: {age_range_label(state['vinted_min_age_hours'], state['vinted_max_age_hours'])}"
     )
 
 def main_kb():
@@ -1181,13 +1323,19 @@ def market_text(market=None):
     stats = _market_stats(market)
     title = _market_title(market)
     status = "Работает" if _market_running(market) else "Остановлен"
-    last = datetime.now().strftime("%H:%M")
+    last = datetime.now(MSK_TZ).strftime("%H:%M МСК")
     if market == "mercari":
         area = "jp.mercari.com"
-        filters = f"Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥"
+        filters = (
+            f"Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥ | "
+            f"Публикация: {age_range_label(state['mercari_min_age_hours'], state['mercari_max_age_hours'])}"
+        )
     else:
         area = ".pl .lt .lv"
-        filters = f"Цена: {state['vinted_min']}–{state['vinted_max']}€ | Публикация: до {_age_label(state['vinted_max_age_hours'])}"
+        filters = (
+            f"Цена: {state['vinted_min']}–{state['vinted_max']}€ | "
+            f"Публикация: {age_range_label(state['vinted_min_age_hours'], state['vinted_max_age_hours'])}"
+        )
     return (
         f"<b>{title}</b>\n"
         f"└ {area}\n\n"
@@ -1224,7 +1372,7 @@ def filters_text(market=None):
             "▣ <b>Цена</b>\n"
             f"└ {state['mercari_min']:,}–{state['mercari_max']:,}¥\n\n"
             "◷ <b>Период публикации</b>\n"
-            "└ Новые сверху\n\n"
+            f"└ {age_range_label(state['mercari_min_age_hours'], state['mercari_max_age_hours'])}\n\n"
             "⊘ <b>Банворды</b>\n"
             f"└ {len(BAD_WORDS)}\n\n"
             "☮ <b>Фильтры продавца</b>\n"
@@ -1242,7 +1390,7 @@ def filters_text(market=None):
         "▣ <b>Цена</b>\n"
         f"└ {state['vinted_min']}–{state['vinted_max']}€\n\n"
         "◷ <b>Период публикации</b>\n"
-        f"└ до {_age_label(state['vinted_max_age_hours'])}\n\n"
+        f"└ {age_range_label(state['vinted_min_age_hours'], state['vinted_max_age_hours'])}\n\n"
         "⊘ <b>Банворды</b>\n"
         f"└ {len(BAD_WORDS)}\n\n"
         "☮ <b>Фильтры продавца</b>\n"
@@ -1370,12 +1518,24 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await edit(f"Введи максимальную цену Mercari (¥)\nСейчас: <b>{state['mercari_max']:,}¥</b>\n\nНапример: <code>50000</code>", filters_kb("mercari"))
         return
     if data in ("age_vinted", "vset_age"):
-        state["awaiting"] = "vinted_age"
+        state["awaiting"] = "vinted_age_range"
         state["current_market"] = "vinted"
-        await edit(f"Введи период публикации Vinted в часах\nСейчас: <b>{state['vinted_max_age_hours']}ч</b>\n\nНапример: <code>24</code>", filters_kb("vinted"))
+        await edit(
+            "Введи диапазон публикации Vinted в часах\n"
+            f"Сейчас: <b>{age_range_label(state['vinted_min_age_hours'], state['vinted_max_age_hours'])}</b>\n\n"
+            "Например: <code>24</code> или <code>6-48</code>",
+            filters_kb("vinted")
+        )
         return
     if data == "age_mercari":
-        await q.answer("Mercari сортируется по новым объявлениям", show_alert=True)
+        state["awaiting"] = "mercari_age_range"
+        state["current_market"] = "mercari"
+        await edit(
+            "Введи диапазон публикации Mercari в часах\n"
+            f"Сейчас: <b>{age_range_label(state['mercari_min_age_hours'], state['mercari_max_age_hours'])}</b>\n\n"
+            "Например: <code>24</code> или <code>6-48</code>",
+            filters_kb("mercari")
+        )
         return
 
     if data.startswith("noop_"):
@@ -1388,11 +1548,11 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "<b>Статус</b>\n\n"
             f"<b>Vinted</b> {'🟢' if state['vinted_running'] else '🔴'}\n"
             f"└ Циклов: {state['vinted_stats']['cycles']} | Находок: {state['vinted_stats']['found']}\n"
-            f"└ Цена: {state['vinted_min']}–{state['vinted_max']}€ | до {_age_label(state['vinted_max_age_hours'])}\n"
+            f"└ Цена: {state['vinted_min']}–{state['vinted_max']}€ | {age_range_label(state['vinted_min_age_hours'], state['vinted_max_age_hours'])}\n"
             f"└ Поле времени: <code>{tf}</code>\n\n"
             f"<b>Mercari.jp</b> {'🟢' if state['mercari_running'] else '🔴'}\n"
             f"└ Циклов: {state['mercari_stats']['cycles']} | Находок: {state['mercari_stats']['found']}\n"
-            f"└ Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥\n\n"
+            f"└ Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥ | {age_range_label(state['mercari_min_age_hours'], state['mercari_max_age_hours'])}\n\n"
             f"Брендов: {len(state['active_brands'])}/{len(ALL_BRANDS)}"
         )
         await edit(text, main_kb())
@@ -1459,19 +1619,24 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         except ValueError:
             await update.message.reply_text("Нужно число больше 0", reply_markup=filters_kb(state.get("current_market")))
-    elif aw == "vinted_age":
+    elif aw in ("vinted_age", "vinted_age_range", "mercari_age_range"):
+        market = "mercari" if aw == "mercari_age_range" else "vinted"
         try:
-            val = float(text)
-            if val <= 0:
-                raise ValueError
-            state["vinted_max_age_hours"] = val
+            min_age, max_age = parse_age_range(text)
+            state[f"{market}_min_age_hours"] = min_age
+            state[f"{market}_max_age_hours"] = max_age
             state["awaiting"] = None
+            state["current_market"] = market
+            label = age_range_label(min_age, max_age)
             await update.message.reply_text(
-                f"✅ Период публикации: <b>до {_age_label(val)}</b>\n\n{filters_text('vinted')}",
-                parse_mode="HTML", reply_markup=filters_kb("vinted")
+                f"✅ Период публикации: <b>{label}</b>\n\n{filters_text(market)}",
+                parse_mode="HTML", reply_markup=filters_kb(market)
             )
         except ValueError:
-            await update.message.reply_text("Нужно число часов, например: 24", reply_markup=filters_kb("vinted"))
+            await update.message.reply_text(
+                "Нужно число часов или диапазон. Например: 24 или 6-48",
+                reply_markup=filters_kb(market)
+            )
     else:
         await update.message.reply_text(main_text(), reply_markup=main_kb(), parse_mode="HTML")
 
