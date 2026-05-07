@@ -13,8 +13,10 @@ from shared import (
     age_in_range,
     format_msk_timestamp,
     get_fx_rate,
+    keyword_matches_text,
     log,
     market_search_queries,
+    notification_chat_ids,
     publish_age_hours,
     state,
     translate_to_ru,
@@ -85,6 +87,10 @@ def _has_blocked_word(item):
     return any(word.lower() in text for word in FRUITS_BLOCKED_WORDS)
 
 
+def fruits_matches_keyword(item, keyword):
+    return keyword_matches_text(_text_blob(item), keyword)
+
+
 def fruits_matches_brand(item, brand):
     text = _text_blob(item)
     brand_l = brand.lower()
@@ -124,34 +130,47 @@ def _normalize_fruits_item(item):
 
 
 def fetch_fruits(query):
-    payload = {
-        "query": FRUITS_PRODUCT_QUERY,
-        "variables": {
-            "filter": {
-                "query": query,
-                "price_min": int(state["fruits_min"]),
-                "price_max": int(state["fruits_max"]),
-                "show_only": "selling",
-            },
-            "offset": 0,
-            "limit": 40,
-            "sort": "POPULAR",
-        },
-    }
     proxies = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
+    items_by_id = {}
     try:
-        response = requests.post(
-            FRUITS_GRAPHQL_URL,
-            json=payload,
-            headers=_headers(query),
-            proxies=proxies,
-            timeout=20,
-        )
-        data = response.json()
-        if response.status_code != 200 or data.get("errors"):
-            log.warning("FruitsFamily GraphQL %s '%s': %s", response.status_code, query, data.get("errors"))
-            return []
-        items = [_normalize_fruits_item(item) for item in data.get("data", {}).get("searchProducts", [])]
+        for sort in ("RELEVANCE", "POPULAR"):
+            for offset in (0, 40):
+                payload = {
+                    "query": FRUITS_PRODUCT_QUERY,
+                    "variables": {
+                        "filter": {
+                            "query": query,
+                            "price_min": int(state["fruits_min"]),
+                            "price_max": int(state["fruits_max"]),
+                            "show_only": "selling",
+                        },
+                        "offset": offset,
+                        "limit": 40,
+                        "sort": sort,
+                    },
+                }
+                response = requests.post(
+                    FRUITS_GRAPHQL_URL,
+                    json=payload,
+                    headers=_headers(query),
+                    proxies=proxies,
+                    timeout=20,
+                )
+                data = response.json()
+                if response.status_code != 200 or data.get("errors"):
+                    log.warning(
+                        "FruitsFamily GraphQL %s '%s' sort=%s offset=%s: %s",
+                        response.status_code, query, sort, offset, data.get("errors"),
+                    )
+                    continue
+                batch = data.get("data", {}).get("searchProducts", []) or []
+                for item in batch:
+                    normalized = _normalize_fruits_item(item)
+                    if normalized["id"]:
+                        items_by_id[normalized["id"]] = normalized
+                if len(batch) < 40:
+                    break
+        items = list(items_by_id.values())
         if items:
             log.info("FruitsFamily '%s' -> %s товаров", query, len(items))
         return items
@@ -177,20 +196,25 @@ def format_fruits_message(item, title_ru, price_line):
 
 
 async def _send_fruits_item(bot_app, image, msg):
-    if not state["chat_id"] or not bot_app:
+    chat_ids = notification_chat_ids()
+    if not chat_ids or not bot_app:
         return
-    if image:
+    for chat_id in chat_ids:
+        if image:
+            try:
+                await bot_app.bot.send_photo(chat_id=chat_id, photo=image, caption=msg, parse_mode="HTML")
+                continue
+            except Exception as e:
+                log.warning("FruitsFamily send_photo failed for chat %s: %s", chat_id, e)
         try:
-            await bot_app.bot.send_photo(chat_id=state["chat_id"], photo=image, caption=msg, parse_mode="HTML")
-            return
+            await bot_app.bot.send_message(
+                chat_id=chat_id,
+                text=msg,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
         except Exception as e:
-            log.warning("FruitsFamily send_photo failed: %s", e)
-    await bot_app.bot.send_message(
-        chat_id=state["chat_id"],
-        text=msg,
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+            log.warning("FruitsFamily send_message failed for chat %s: %s", chat_id, e)
 
 
 def fruits_loop(bot_app):
@@ -209,13 +233,24 @@ def fruits_loop(bot_app):
             for query, _keyword in market_search_queries(brand, "fruits"):
                 if not state["fruits_running"]:
                     break
-                items = fetch_fruits(query)
-                for item in items:
+                search_queries = [query]
+                if _keyword and query.lower().strip() != brand.lower().strip():
+                    search_queries.append(brand)
+                items_by_id = {}
+                for search_query in dict.fromkeys(search_queries):
+                    for found in fetch_fruits(search_query):
+                        if found.get("id"):
+                            items_by_id[found["id"]] = found
+
+                for item in items_by_id.values():
                     iid = item.get("id")
                     if not iid or iid in state["fruits_seen"]:
                         continue
                     if not is_relevant_fruits_item(item, brand):
                         log.info("SKIP FruitsFamily filter: %s", item.get("title", "?")[:60])
+                        continue
+                    if _keyword and not fruits_matches_keyword(item, _keyword):
+                        log.info("SKIP FruitsFamily keyword '%s': %s", _keyword, item.get("title", "?")[:60])
                         continue
                     age_ok = age_in_range(
                         item.get("created_at"),
