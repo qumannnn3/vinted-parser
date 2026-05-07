@@ -225,47 +225,80 @@ def vinted_loop():
 # ────────────────────────────────────────────────────────────────────────
 
 def fetch_mercari(query):
-    """Парсим Mercari Japan через их API."""
+    """Парсим Mercari Japan через публичный поисковый эндпоинт."""
     try:
+        proxies = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
         headers = {
             "User-Agent": random.choice(USER_AGENTS),
-            "Accept": "application/json",
+            "Accept": "application/json, text/plain, */*",
             "Accept-Language": "ja-JP,ja;q=0.9,en;q=0.8",
-            "X-Platform": "web",
-            "DPop": "dummy",
-            "Referer": "https://jp.mercari.com/",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Referer": f"https://jp.mercari.com/search?keyword={requests.utils.quote(query)}&status=on_sale",
             "Origin": "https://jp.mercari.com",
+            "X-Platform": "web",
         }
-        if PROXY_URL:
-            proxies = {"http": PROXY_URL, "https": PROXY_URL}
-        else:
-            proxies = None
-
-        params = {
-            "keyword": query,
-            "limit": 30,
-            "offset": 0,
-            "sort": "created_time",
-            "order": "desc",
-            "status": "on_sale",
-            "price_min": state["mercari_min"],
-            "price_max": state["mercari_max"],
-            "category_id": "1",  # одежда/мода
+        # Публичный GraphQL-like endpoint без авторизации
+        payload = {
+            "operationName": "searchResponse",
+            "variables": {
+                "criteria": {
+                    "keyword": query,
+                    "sortBy": "SORT_BY_CREATED_TIME",
+                    "status": ["STATUS_TRADING"],
+                    "price": {
+                        "priceMin": state["mercari_min"],
+                        "priceMax": state["mercari_max"],
+                    },
+                    "categoryIds": ["1"],
+                },
+                "limit": 30,
+                "offset": 0,
+            },
         }
+        # Fallback: простой GET через web search API
         r = requests.get(
-            "https://api.mercari.jp/v2/entities:search",
-            params=params,
+            "https://api.mercari.jp/items/get",
+            params={
+                "search_keyword": query,
+                "status": "on_sale",
+                "order": "desc",
+                "sort": "created_time",
+                "item_types": "1",
+                "page_size": 30,
+                "price_min": state["mercari_min"],
+                "price_max": state["mercari_max"],
+            },
             headers=headers,
             proxies=proxies,
             timeout=20,
         )
         if r.status_code == 200:
             data  = r.json()
-            items = data.get("items", [])
+            items = data.get("data", data.get("items", []))
             if items: log.info(f"Mercari '{query}' → {len(items)} товаров")
             return items
         else:
-            log.warning(f"Mercari {r.status_code} для '{query}'")
+            # Второй вариант — scrape через fetch API
+            r2 = requests.get(
+                "https://jp.mercari.com/api/items/search",
+                params={
+                    "keyword": query,
+                    "status": "on_sale",
+                    "page": 1,
+                    "limit": 30,
+                    "price_min": state["mercari_min"],
+                    "price_max": state["mercari_max"],
+                },
+                headers=headers,
+                proxies=proxies,
+                timeout=20,
+            )
+            if r2.status_code == 200:
+                data  = r2.json()
+                items = data.get("items", data.get("data", []))
+                if items: log.info(f"Mercari '{query}' → {len(items)} товаров")
+                return items
+            log.warning(f"Mercari {r.status_code}/{r2.status_code} для '{query}'")
             return []
     except Exception as e:
         log.warning(f"fetch_mercari '{query}': {e}")
