@@ -18,14 +18,14 @@ CATALOG_IDS = [1, 3, 5, 9, 7, 12]
 MAX_AGE_HOURS = 24
 
 try:
-    MERCARI_MIN_MARKET_SAMPLES = max(3, int(os.environ.get("MERCARI_MIN_MARKET_SAMPLES", "5")))
+    MERCARI_MIN_MARKET_SAMPLES = max(1, int(os.environ.get("MERCARI_MIN_MARKET_SAMPLES", "1")))
 except ValueError:
-    MERCARI_MIN_MARKET_SAMPLES = 5
+    MERCARI_MIN_MARKET_SAMPLES = 1
 
 try:
-    MERCARI_MAX_MARKET_RATIO = float(os.environ.get("MERCARI_MAX_MARKET_RATIO", "0.95"))
+    MERCARI_MAX_MARKET_RATIO = float(os.environ.get("MERCARI_MAX_MARKET_RATIO", "0.90"))
 except ValueError:
-    MERCARI_MAX_MARKET_RATIO = 0.95
+    MERCARI_MAX_MARKET_RATIO = 0.90
 
 BAD_WORDS = [
     "pieluchy", "pampers", "baby", "dziecko", "dla dzieci", "подгузники", "детское",
