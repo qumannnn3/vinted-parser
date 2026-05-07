@@ -1,6 +1,6 @@
 import statistics
 from dataclasses import dataclass
-from typing import Iterable, Optional, Sequence
+from typing import Callable, Iterable, Optional, Sequence, Any
 
 
 MIN_REQUIRED_PRICES = 3
@@ -16,10 +16,7 @@ class MarketPriceResult:
 
 
 def _to_int_price(value) -> Optional[int]:
-    if value is None:
-        return None
-
-    if isinstance(value, bool):
+    if value is None or isinstance(value, bool):
         return None
 
     if isinstance(value, (int, float)):
@@ -45,12 +42,18 @@ def _to_int_price(value) -> Optional[int]:
     return None
 
 
-def normalize_prices(prices: Iterable) -> list[int]:
+def normalize_prices(
+    prices: Iterable,
+    price_getter: Optional[Callable[[Any], Any]] = None,
+) -> list[int]:
     normalized: list[int] = []
-    for price in prices or []:
-        value = _to_int_price(price)
+
+    for item in prices or []:
+        raw_price = price_getter(item) if price_getter else item
+        value = _to_int_price(raw_price)
         if value is not None:
             normalized.append(value)
+
     return normalized
 
 
@@ -72,8 +75,12 @@ def remove_outliers(prices: Sequence[int]) -> list[int]:
     return [p for p in prices if lower <= p <= upper]
 
 
-def calculate_market_price(prices: Iterable, min_required: int = MIN_REQUIRED_PRICES) -> Optional[int]:
-    normalized = normalize_prices(prices)
+def calculate_market_price(
+    prices: Iterable,
+    min_required: int = MIN_REQUIRED_PRICES,
+    price_getter: Optional[Callable[[Any], Any]] = None,
+) -> Optional[int]:
+    normalized = normalize_prices(prices, price_getter=price_getter)
 
     if len(normalized) < min_required:
         return None
@@ -99,8 +106,12 @@ def calculate_discount(price: int, market_price: int) -> int:
     return int(round((1 - (current / market)) * 100))
 
 
-def build_market_result(current_price: int, comparable_prices: Iterable) -> Optional[MarketPriceResult]:
-    prices = normalize_prices(comparable_prices)
+def build_market_result(
+    current_price: int,
+    comparable_prices: Iterable,
+    price_getter: Optional[Callable[[Any], Any]] = None,
+) -> Optional[MarketPriceResult]:
+    prices = normalize_prices(comparable_prices, price_getter=price_getter)
     market_price = calculate_market_price(prices)
 
     if not market_price:
@@ -115,28 +126,32 @@ def build_market_result(current_price: int, comparable_prices: Iterable) -> Opti
     )
 
 
-def is_profitable(current_price: int, market_price: int, min_discount_percent: int = PROFITABLE_DISCOUNT_PERCENT) -> bool:
+def is_profitable(
+    current_price: int,
+    market_price: int,
+    min_discount_percent: int = PROFITABLE_DISCOUNT_PERCENT,
+) -> bool:
     return calculate_discount(current_price, market_price) >= min_discount_percent
 
 
-def market_line_jpy(current_price: int, comparable_prices: Iterable) -> str:
-    result = build_market_result(current_price, comparable_prices)
+def market_line_jpy(current_price: int, comparable_prices: Iterable, price_getter=None) -> str:
+    result = build_market_result(current_price, comparable_prices, price_getter=price_getter)
     if not result:
         return ''
 
     return f'Рынок: ~¥{result.market_price:,}, ниже на {result.discount_percent}%'
 
 
-def market_line_krw(current_price: int, comparable_prices: Iterable) -> str:
-    result = build_market_result(current_price, comparable_prices)
+def market_line_krw(current_price: int, comparable_prices: Iterable, price_getter=None) -> str:
+    result = build_market_result(current_price, comparable_prices, price_getter=price_getter)
     if not result:
         return ''
 
     return f'Рынок: ~₩{result.market_price:,}, ниже на {result.discount_percent}%'
 
 
-def market_line_eur(current_price: int, comparable_prices: Iterable) -> str:
-    result = build_market_result(current_price, comparable_prices)
+def market_line_eur(current_price: int, comparable_prices: Iterable, price_getter=None) -> str:
+    result = build_market_result(current_price, comparable_prices, price_getter=price_getter)
     if not result:
         return ''
 
