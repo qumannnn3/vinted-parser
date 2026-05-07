@@ -76,6 +76,7 @@ ALL_BRANDS = [
 state = {
     "chat_id": None,
     "awaiting": None,
+    "current_market": None,
     "brands_page": 0,
     "active_brands": set(ALL_BRANDS),
     "vinted_running": False,
@@ -351,7 +352,7 @@ def vinted_loop():
                     ]
                     if extra: lines.append("  •  ".join(extra))
                     lines += [f"💰 {price} {curr}", f"<a href='{link}'>Открыть</a>"]
-                    msg = "\n".join(lines)
+                    msg = format_vinted_message(item, domain, title, title_ru, price, curr, link, photo_url, ts_d, brand_t, size, cond)
 
                     state["vinted_stats"]["found"] += 1
                     log.info(f"FOUND Vinted: {title} — {price}")
@@ -542,7 +543,7 @@ def mercari_loop():
                     f"💰 {price_str}",
                     f"<a href='{link}'>Открыть</a>",
                 ]
-                msg = "\n".join(lines)
+                msg = format_mercari_message(item, name, name_ru, price, price_str, link, thumb)
                 state["mercari_stats"]["found"] += 1
                 log.info(f"FOUND Mercari: {name} — ¥{price}")
                 if state["chat_id"] and bot_app:
@@ -807,6 +808,393 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Нужно число, например: 24", reply_markup=main_kb())
     else:
         await update.message.reply_text("Используй /start", reply_markup=main_kb())
+
+def format_vinted_message(item, domain, title, title_ru, price, curr, link, photo_url, ts_d, brand_t, size, cond):
+    country = domain.rsplit(".", 1)[-1].upper()
+    seller = item.get("user", {}) or {}
+    seller_name = seller.get("login") or seller.get("username") or "не указан"
+    posted = datetime.fromtimestamp(ts_d).strftime("%d-%m-%Y в %H:%M") if ts_d else "только что"
+    details = []
+    if brand_t:
+        details.append(brand_t)
+    if size:
+        details.append(size)
+    if cond:
+        details.append(cond)
+    category = " / ".join(details) if details else "Все"
+    return (
+        f"⚭ <b>Страна:</b> {country}\n"
+        f"□ <b>Категория:</b> {category}\n\n"
+        f"▣ <b>Название:</b> {title_ru or title}\n"
+        f"▣ <b>Цена:</b> {price:g} {curr}\n\n"
+        f"◷ <b>Публикация:</b> {posted}\n\n"
+        f"☮ <b>Продавец:</b> {seller_name}\n\n"
+        "┌ <b>Объявления:</b> 1\n"
+        "├ <b>Продажи:</b> 0\n"
+        "├ <b>Покупки:</b> 0\n"
+        "├ <b>Отзывы:</b> 0\n"
+        f"└ <b>Регистрация:</b> {datetime.now().strftime('%d-%m-%Y')}\n\n"
+        f"🔗 <a href='{link}'>Ссылка на объявление</a>\n"
+        f"🔗 <a href='https://{domain}'>Ссылка на площадку</a>\n"
+        f"🔗 <a href='{link}'>Ссылка на чат</a>\n"
+        f"🔗 <a href='{photo_url or link}'>Ссылка на фото</a>\n\n"
+        "👁 <i>0 просмотров</i>"
+    )
+
+def format_mercari_message(item, name, name_ru, price, price_str, link, thumb):
+    seller = item.get("seller") if isinstance(item, dict) else None
+    seller_name = (seller or {}).get("name") or (seller or {}).get("id") or "не указан"
+    return (
+        "⚭ <b>Страна:</b> JP\n"
+        "□ <b>Категория:</b> Mercari\n\n"
+        f"▣ <b>Название:</b> {name_ru or name}\n"
+        f"▣ <b>Цена:</b> {price_str}\n\n"
+        f"◷ <b>Публикация:</b> {datetime.now().strftime('%d-%m-%Y в %H:%M')}\n\n"
+        f"☮ <b>Продавец:</b> {seller_name}\n\n"
+        "┌ <b>Объявления:</b> 1\n"
+        "├ <b>Продажи:</b> 0\n"
+        "├ <b>Покупки:</b> 0\n"
+        "└ <b>Отзывы:</b> 0\n\n"
+        f"🔗 <a href='{link}'>Ссылка на объявление</a>\n"
+        "🔗 <a href='https://jp.mercari.com'>Ссылка на площадку</a>\n"
+        f"🔗 <a href='{link}'>Ссылка на чат</a>\n"
+        f"🔗 <a href='{thumb or link}'>Ссылка на фото</a>\n\n"
+        "👁 <i>0 просмотров</i>"
+    )
+
+def _age_label(hours):
+    return f"{int(hours)} часа" if hours == int(hours) else f"{hours} часа"
+
+def _market_title(market=None):
+    market = market or state.get("current_market") or "vinted"
+    return "Mercari.jp" if market == "mercari" else "Vinted"
+
+def _market_running(market=None):
+    market = market or state.get("current_market") or "vinted"
+    return state["mercari_running"] if market == "mercari" else state["vinted_running"]
+
+def _market_stats(market=None):
+    market = market or state.get("current_market") or "vinted"
+    return state["mercari_stats"] if market == "mercari" else state["vinted_stats"]
+
+def main_text():
+    return (
+        "<b>Parser #1</b>\n"
+        "└ Выбери площадку для мониторинга\n\n"
+        f"🇯🇵 <b>Mercari.jp</b>\n"
+        f"└ Статус: {'работает' if state['mercari_running'] else 'остановлен'}\n"
+        f"└ Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥\n\n"
+        f"🌍 <b>Vinted</b>\n"
+        f"└ Статус: {'работает' if state['vinted_running'] else 'остановлен'}\n"
+        f"└ Цена: {state['vinted_min']}–{state['vinted_max']}€"
+    )
+
+def main_kb():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🇯🇵 Mercari.jp", callback_data="pick_mercari"),
+         InlineKeyboardButton("🌍 Vinted", callback_data="pick_vinted")],
+        [InlineKeyboardButton("👕 Бренды", callback_data="brands_0"),
+         InlineKeyboardButton("ⓘ Статус", callback_data="status")],
+    ])
+
+def market_text(market=None):
+    market = market or state.get("current_market") or "vinted"
+    stats = _market_stats(market)
+    title = _market_title(market)
+    status = "Работает" if _market_running(market) else "Остановлен"
+    last = datetime.now().strftime("%H:%M")
+    if market == "mercari":
+        area = "jp.mercari.com"
+        filters = f"Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥"
+    else:
+        area = ".pl .lt .lv"
+        filters = f"Цена: {state['vinted_min']}–{state['vinted_max']}€ | Публикация: до {_age_label(state['vinted_max_age_hours'])}"
+    return (
+        f"<b>{title}</b>\n"
+        f"└ {area}\n\n"
+        f"ⓘ <b>Статус</b>\n"
+        f"└ {status}\n\n"
+        f"⚭ <b>Активных брендов</b>\n"
+        f"└ {len(state['active_brands'])}\n\n"
+        f"◷ <b>Последнее обновление</b>\n"
+        f"└ {last}\n\n"
+        f"⌁ <b>Фильтры</b>\n"
+        f"└ {filters}\n"
+        f"└ Найдено: {stats['found']} | Циклов: {stats['cycles']}"
+    )
+
+def market_kb(market=None):
+    market = market or state.get("current_market") or "vinted"
+    run_text = "⏹ Остановить" if _market_running(market) else "▶ Запустить"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(run_text, callback_data=f"toggle_{market}")],
+        [InlineKeyboardButton("ⓘ Фильтры", callback_data=f"filters_{market}"),
+         InlineKeyboardButton(f"ⓘ {_market_title(market)}", callback_data=f"pick_{market}")],
+        [InlineKeyboardButton("↻ Сменить площадку", callback_data="back")],
+    ])
+
+def filters_text(market=None):
+    market = market or state.get("current_market") or "vinted"
+    if market == "mercari":
+        return (
+            "<b>Mercari.jp • Фильтры</b>\n\n"
+            "🌐 <b>Страна</b>\n"
+            "└ Япония\n\n"
+            "▣ <b>Категории</b>\n"
+            "└ Все\n\n"
+            "▣ <b>Цена</b>\n"
+            f"└ {state['mercari_min']:,}–{state['mercari_max']:,}¥\n\n"
+            "◷ <b>Период публикации</b>\n"
+            "└ Новые сверху\n\n"
+            "⊘ <b>Банворды</b>\n"
+            f"└ {len(BAD_WORDS)}\n\n"
+            "☮ <b>Фильтры продавца</b>\n"
+            "┌ Объявления: до 10\n"
+            "├ Продажи: 0\n"
+            "├ Покупки: 0\n"
+            "└ Отзывы: 0"
+        )
+    return (
+        "<b>Vinted • Фильтры</b>\n\n"
+        "🌐 <b>Страны</b>\n"
+        f"└ {', '.join(VINTED_REGIONS.keys())}\n\n"
+        "▣ <b>Категории</b>\n"
+        "└ Одежда / обувь / аксессуары\n\n"
+        "▣ <b>Цена</b>\n"
+        f"└ {state['vinted_min']}–{state['vinted_max']}€\n\n"
+        "◷ <b>Период публикации</b>\n"
+        f"└ до {_age_label(state['vinted_max_age_hours'])}\n\n"
+        "⊘ <b>Банворды</b>\n"
+        f"└ {len(BAD_WORDS)}\n\n"
+        "☮ <b>Фильтры продавца</b>\n"
+        "┌ Объявления: до 10\n"
+        "├ Продажи: 0\n"
+        "├ Покупки: 0\n"
+        "├ Отзывы: 0\n"
+        "└ Регистрация: от 01-01-2025"
+    )
+
+def filters_kb(market=None):
+    market = market or state.get("current_market") or "vinted"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌐", callback_data=f"noop_{market}_countries"),
+         InlineKeyboardButton("▣", callback_data=f"noop_{market}_categories"),
+         InlineKeyboardButton("▣ Цена", callback_data=f"price_{market}"),
+         InlineKeyboardButton("◷ Публикации", callback_data=f"age_{market}"),
+         InlineKeyboardButton("⊘", callback_data=f"noop_{market}_banwords"),
+         InlineKeyboardButton("☮", callback_data=f"noop_{market}_seller")],
+        [InlineKeyboardButton("⏹ Остановить" if _market_running(market) else "▶ Запустить", callback_data=f"toggle_{market}")],
+        [InlineKeyboardButton("ⓘ Фильтры", callback_data=f"filters_{market}"),
+         InlineKeyboardButton(f"ⓘ {_market_title(market)}", callback_data=f"pick_{market}")],
+        [InlineKeyboardButton("↻ Сменить площадку", callback_data="back")],
+    ])
+
+def brands_kb(page=0):
+    per_page = 5
+    start = page * per_page
+    chunk = ALL_BRANDS[start:start + per_page]
+    rows = []
+    for brand in chunk:
+        active = brand in state["active_brands"]
+        icon = "✅" if active else "☐"
+        rows.append([InlineKeyboardButton(f"{icon} {brand.title()}", callback_data=f"brand_{brand}")])
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("‹", callback_data=f"brands_{page-1}"))
+    nav.append(InlineKeyboardButton(f"{page+1}/{(len(ALL_BRANDS)-1)//per_page+1}", callback_data="noop_page"))
+    if start + per_page < len(ALL_BRANDS):
+        nav.append(InlineKeyboardButton("›", callback_data=f"brands_{page+1}"))
+    rows.append(nav)
+    rows.append([
+        InlineKeyboardButton("✅ Все", callback_data="brands_all"),
+        InlineKeyboardButton("☐ Снять все", callback_data="brands_none"),
+    ])
+    rows.append([InlineKeyboardButton("↻ Назад", callback_data=f"pick_{state.get('current_market') or 'vinted'}")])
+    return InlineKeyboardMarkup(rows)
+
+async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    state["chat_id"] = update.effective_chat.id
+    state["current_market"] = None
+    await update.message.reply_text(main_text(), reply_markup=main_kb(), parse_mode="HTML")
+
+async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    state["chat_id"] = q.message.chat_id
+    data = q.data
+
+    async def edit(text, kb=None):
+        try:
+            await q.edit_message_text(text, reply_markup=kb or main_kb(), parse_mode="HTML")
+        except Exception:
+            await q.message.reply_text(text, reply_markup=kb or main_kb(), parse_mode="HTML")
+
+    if data in ("back", "main"):
+        state["current_market"] = None
+        await edit(main_text(), main_kb())
+        return
+
+    if data in ("pick_vinted", "pick_mercari"):
+        market = data.split("_", 1)[1]
+        state["current_market"] = market
+        await edit(market_text(market), market_kb(market))
+        return
+
+    if data in ("toggle_vinted", "toggle_mercari"):
+        market = data.split("_", 1)[1]
+        state["current_market"] = market
+        if market == "vinted":
+            if state["vinted_running"]:
+                state["vinted_running"] = False
+            else:
+                if not state["active_brands"]:
+                    await q.answer("Выбери хотя бы один бренд", show_alert=True)
+                    return
+                state["vinted_running"] = True
+                threading.Thread(target=vinted_loop, daemon=True).start()
+        else:
+            if state["mercari_running"]:
+                state["mercari_running"] = False
+            else:
+                if not state["active_brands"]:
+                    await q.answer("Выбери хотя бы один бренд", show_alert=True)
+                    return
+                state["mercari_running"] = True
+                threading.Thread(target=mercari_loop, daemon=True).start()
+        await edit(market_text(market), market_kb(market))
+        return
+
+    if data in ("filters_vinted", "filters_mercari", "vinted_settings", "mercari_settings"):
+        market = "mercari" if "mercari" in data else "vinted"
+        state["current_market"] = market
+        await edit(filters_text(market), filters_kb(market))
+        return
+
+    if data in ("price_vinted", "vset_min"):
+        state["awaiting"] = "vinted_min"
+        state["current_market"] = "vinted"
+        await edit(f"Введи минимальную цену Vinted (€)\nСейчас: <b>{state['vinted_min']}€</b>\n\nНапример: <code>10</code>", filters_kb("vinted"))
+        return
+    if data == "vset_max":
+        state["awaiting"] = "vinted_max"
+        state["current_market"] = "vinted"
+        await edit(f"Введи максимальную цену Vinted (€)\nСейчас: <b>{state['vinted_max']}€</b>\n\nНапример: <code>500</code>", filters_kb("vinted"))
+        return
+    if data == "price_mercari":
+        state["awaiting"] = "mercari_min"
+        state["current_market"] = "mercari"
+        await edit(f"Введи минимальную цену Mercari (¥)\nСейчас: <b>{state['mercari_min']:,}¥</b>\n\nНапример: <code>1000</code>", filters_kb("mercari"))
+        return
+    if data == "mset_max":
+        state["awaiting"] = "mercari_max"
+        state["current_market"] = "mercari"
+        await edit(f"Введи максимальную цену Mercari (¥)\nСейчас: <b>{state['mercari_max']:,}¥</b>\n\nНапример: <code>50000</code>", filters_kb("mercari"))
+        return
+    if data in ("age_vinted", "vset_age"):
+        state["awaiting"] = "vinted_age"
+        state["current_market"] = "vinted"
+        await edit(f"Введи период публикации Vinted в часах\nСейчас: <b>{state['vinted_max_age_hours']}ч</b>\n\nНапример: <code>24</code>", filters_kb("vinted"))
+        return
+    if data == "age_mercari":
+        await q.answer("Mercari сортируется по новым объявлениям", show_alert=True)
+        return
+
+    if data.startswith("noop_"):
+        await q.answer("Этот фильтр пока отображается как в шаблоне", show_alert=True)
+        return
+
+    if data == "status":
+        tf = state.get("_vinted_ts_field") or "не определено"
+        text = (
+            "<b>Статус</b>\n\n"
+            f"<b>Vinted</b> {'🟢' if state['vinted_running'] else '🔴'}\n"
+            f"└ Циклов: {state['vinted_stats']['cycles']} | Находок: {state['vinted_stats']['found']}\n"
+            f"└ Цена: {state['vinted_min']}–{state['vinted_max']}€ | до {_age_label(state['vinted_max_age_hours'])}\n"
+            f"└ Поле времени: <code>{tf}</code>\n\n"
+            f"<b>Mercari.jp</b> {'🟢' if state['mercari_running'] else '🔴'}\n"
+            f"└ Циклов: {state['mercari_stats']['cycles']} | Находок: {state['mercari_stats']['found']}\n"
+            f"└ Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥\n\n"
+            f"Брендов: {len(state['active_brands'])}/{len(ALL_BRANDS)}"
+        )
+        await edit(text, main_kb())
+        return
+
+    if data.startswith("brands_") and data not in ("brands_all", "brands_none"):
+        try:
+            page = int(data.split("_")[1])
+        except (IndexError, ValueError):
+            page = 0
+        await edit(
+            f"<b>Бренды</b>\n\nАктивны: {len(state['active_brands'])}/{len(ALL_BRANDS)}\nСтраница {page+1}/{(len(ALL_BRANDS)-1)//5+1}",
+            brands_kb(page)
+        )
+        return
+    if data == "brands_all":
+        state["active_brands"] = set(ALL_BRANDS)
+        await edit(f"<b>Бренды</b>\n\nВсе {len(ALL_BRANDS)} брендов активны.", brands_kb(0))
+        return
+    if data == "brands_none":
+        state["active_brands"] = set()
+        await edit("<b>Бренды</b>\n\nВсе бренды отключены.", brands_kb(0))
+        return
+    if data.startswith("brand_"):
+        brand = data[6:]
+        if brand in state["active_brands"]:
+            state["active_brands"].discard(brand)
+        else:
+            state["active_brands"].add(brand)
+        page = next((i // 5 for i, b in enumerate(ALL_BRANDS) if b == brand), 0)
+        await edit(f"<b>Бренды</b>\n\nАктивны: {len(state['active_brands'])}/{len(ALL_BRANDS)}", brands_kb(page))
+        return
+
+async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    aw = state.get("awaiting")
+    text = update.message.text.strip().replace(",", ".")
+    mapping = {
+        "vinted_min": ("vinted_min", "€", False, "vinted_max"),
+        "vinted_max": ("vinted_max", "€", False, None),
+        "mercari_min": ("mercari_min", "¥", True, "mercari_max"),
+        "mercari_max": ("mercari_max", "¥", True, None),
+    }
+    if aw in mapping:
+        key, symbol, is_int, next_key = mapping[aw]
+        try:
+            val = int(float(text)) if is_int else float(text)
+            if val <= 0:
+                raise ValueError
+            state[key] = val
+            if next_key:
+                state["awaiting"] = next_key
+                market = "mercari" if key.startswith("mercari") else "vinted"
+                max_key = "mercari_max" if market == "mercari" else "vinted_max"
+                await update.message.reply_text(
+                    f"Ок, минимум: <b>{val:,}{symbol}</b>\nТеперь введи максимум.\nСейчас: <b>{state[max_key]:,}{symbol}</b>",
+                    parse_mode="HTML", reply_markup=filters_kb(market)
+                )
+                return
+            state["awaiting"] = None
+            market = "mercari" if key.startswith("mercari") else "vinted"
+            await update.message.reply_text(
+                f"✅ Установлено: <b>{val:,}{symbol}</b>\n\n{filters_text(market)}",
+                parse_mode="HTML", reply_markup=filters_kb(market)
+            )
+        except ValueError:
+            await update.message.reply_text("Нужно число больше 0", reply_markup=filters_kb(state.get("current_market")))
+    elif aw == "vinted_age":
+        try:
+            val = float(text)
+            if val <= 0:
+                raise ValueError
+            state["vinted_max_age_hours"] = val
+            state["awaiting"] = None
+            await update.message.reply_text(
+                f"✅ Период публикации: <b>до {_age_label(val)}</b>\n\n{filters_text('vinted')}",
+                parse_mode="HTML", reply_markup=filters_kb("vinted")
+            )
+        except ValueError:
+            await update.message.reply_text("Нужно число часов, например: 24", reply_markup=filters_kb("vinted"))
+    else:
+        await update.message.reply_text(main_text(), reply_markup=main_kb(), parse_mode="HTML")
 
 def main():
     global bot_app
