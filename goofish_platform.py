@@ -34,7 +34,10 @@ GOFISH_HOME_URL = "https://www.goofish.com"
 GOFISH_MTOP_HOST = "https://h5api.m.goofish.com"
 GOFISH_SEARCH_API = "mtop.taobao.idlemtopsearch.pc.search"
 GOFISH_APP_KEY = os.environ.get("GOOFISH_APP_KEY", "34839810")
-GOFISH_COOKIE = os.environ.get("GOOFISH_COOKIE", os.environ.get("GOFISH_COOKIE_STRING", ""))
+GOOFISH_COOKIE = os.environ.get(
+    "GOOFISH_COOKIE",
+    os.environ.get("GOOFISH_COOKIE_STRING", os.environ.get("GOFISH_COOKIE_STRING", "")),
+)
 
 GOFISH_MARKET_PRICE_MAX = 10_000_000
 GOFISH_MIN_MARKET_SAMPLES = 1
