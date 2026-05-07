@@ -7,7 +7,10 @@ from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Men
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from fruits_platform import fruits_loop
-from gofish_platform import gofish_loop
+try:
+    from goofish_platform import gofish_loop
+except ModuleNotFoundError:
+    gofish_loop = None
 from mercari_platform import mercari_loop
 from shared import (
     ALL_BRANDS,
@@ -373,6 +376,9 @@ def _start_market_thread(market):
     elif market == "fruits":
         threading.Thread(target=fruits_loop, args=(bot_app,), daemon=True).start()
     elif market == "gofish":
+        if gofish_loop is None:
+            log.error("Gofish не запущен: файл gofish_platform.py не найден в /app")
+            return
         threading.Thread(target=gofish_loop, args=(bot_app,), daemon=True).start()
 
 
