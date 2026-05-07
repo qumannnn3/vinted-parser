@@ -857,6 +857,16 @@ if __name__ == "__main__":
     while True:
         try:
             main()
+            break
+        except (KeyboardInterrupt, SystemExit):
+            log.info("Бот остановлен")
+            break
+        except RuntimeError as e:
+            if "Event loop is closed" in str(e):
+                log.info("Event loop closed during shutdown, exiting")
+                break
+            log.error("Бот упал: %s. Перезапуск через 15с...", e)
+            time.sleep(15)
         except Exception as e:
             log.error("Бот упал: %s. Перезапуск через 15с...", e)
             time.sleep(15)
