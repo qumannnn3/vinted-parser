@@ -1,7 +1,0 @@
-app = "vinted-parser"
-primary_region = "fra"
-
-[build]
-
-[processes]
-  app = "python vinted_bot.py"
