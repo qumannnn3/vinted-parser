@@ -3,3 +3,5 @@ python-telegram-bot[socks,job-queue]==21.11.1
 brotli
 mercapi==0.4.2
 apscheduler
+pytz
+tzdata
