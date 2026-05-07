@@ -3,7 +3,7 @@ import threading
 import time
 from datetime import datetime
 
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonCommands, ReplyKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from mercari_platform import mercari_loop
@@ -84,6 +84,17 @@ def main_kb():
     ])
 
 
+def quick_kb():
+    return ReplyKeyboardMarkup(
+        [
+            ["Меню", "Статус"],
+            ["Mercari.jp", "Vinted"],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
 def market_text(market=None):
     market = market or state.get("current_market") or "vinted"
     stats = _market_stats(market)
@@ -146,6 +157,21 @@ def filters_kb(market=None):
     ])
 
 
+def status_text():
+    tf = state.get("_vinted_ts_field") or "не определено"
+    return (
+        "<b>Статус</b>\n\n"
+        f"<b>Vinted</b> {'🟢' if state['vinted_running'] else '🔴'}\n"
+        f"└ Циклов: {state['vinted_stats']['cycles']} | Находок: {state['vinted_stats']['found']}\n"
+        f"└ Цена: {vinted_price_range_label()} | {_age_label('vinted')}\n"
+        f"└ Поле времени: <code>{tf}</code>\n\n"
+        f"<b>Mercari.jp</b> {'🟢' if state['mercari_running'] else '🔴'}\n"
+        f"└ Циклов: {state['mercari_stats']['cycles']} | Находок: {state['mercari_stats']['found']}\n"
+        f"└ Цена: {mercari_price_range_label()} | {_age_label('mercari')}\n\n"
+        f"Брендов: {len(state['active_brands'])}/{len(ALL_BRANDS)}"
+    )
+
+
 def brands_kb(page=0):
     per_page = 5
     start = page * per_page
@@ -180,7 +206,14 @@ def _start_market_thread(market):
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     state["chat_id"] = update.effective_chat.id
     state["current_market"] = None
+    await update.message.reply_text("Панель команд включена", reply_markup=quick_kb())
     await update.message.reply_text(main_text(), reply_markup=main_kb(), parse_mode="HTML")
+
+
+async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    state["chat_id"] = update.effective_chat.id
+    await update.message.reply_text("Панель команд включена", reply_markup=quick_kb())
+    await update.message.reply_text(status_text(), reply_markup=main_kb(), parse_mode="HTML")
 
 
 async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -272,19 +305,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "status":
-        tf = state.get("_vinted_ts_field") or "не определено"
-        text = (
-            "<b>Статус</b>\n\n"
-            f"<b>Vinted</b> {'🟢' if state['vinted_running'] else '🔴'}\n"
-            f"└ Циклов: {state['vinted_stats']['cycles']} | Находок: {state['vinted_stats']['found']}\n"
-            f"└ Цена: {vinted_price_range_label()} | {_age_label('vinted')}\n"
-            f"└ Поле времени: <code>{tf}</code>\n\n"
-            f"<b>Mercari.jp</b> {'🟢' if state['mercari_running'] else '🔴'}\n"
-            f"└ Циклов: {state['mercari_stats']['cycles']} | Находок: {state['mercari_stats']['found']}\n"
-            f"└ Цена: {mercari_price_range_label()} | {_age_label('mercari')}\n\n"
-            f"Брендов: {len(state['active_brands'])}/{len(ALL_BRANDS)}"
-        )
-        await edit(text, main_kb())
+        await edit(status_text(), main_kb())
         return
 
     if data.startswith("brands_") and data not in ("brands_all", "brands_none"):
@@ -326,7 +347,33 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     aw = state.get("awaiting")
-    text = update.message.text.strip().replace(",", ".")
+    raw_text = update.message.text.strip()
+    button_text = raw_text.lower()
+
+    if button_text in ("меню", "menu", "/menu", "/start"):
+        state["awaiting"] = None
+        state["current_market"] = None
+        await update.message.reply_text(main_text(), reply_markup=main_kb(), parse_mode="HTML")
+        return
+
+    if button_text in ("статус", "status", "/status"):
+        state["awaiting"] = None
+        await update.message.reply_text(status_text(), reply_markup=main_kb(), parse_mode="HTML")
+        return
+
+    if button_text in ("mercari", "mercari.jp", "меркари"):
+        state["awaiting"] = None
+        state["current_market"] = "mercari"
+        await update.message.reply_text(market_text("mercari"), reply_markup=market_kb("mercari"), parse_mode="HTML")
+        return
+
+    if button_text in ("vinted", "винтед"):
+        state["awaiting"] = None
+        state["current_market"] = "vinted"
+        await update.message.reply_text(market_text("vinted"), reply_markup=market_kb("vinted"), parse_mode="HTML")
+        return
+
+    text = raw_text.replace(",", ".")
 
     if aw in ("vinted_price_range", "mercari_price_range"):
         market = "mercari" if aw == "mercari_price_range" else "vinted"
@@ -370,9 +417,13 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def setup_bot_commands(app):
-    await app.bot.set_my_commands([
-        BotCommand("start", "Главное меню"),
-    ])
+    commands = [
+        BotCommand("start", "Запустить бота"),
+        BotCommand("menu", "Главное меню"),
+        BotCommand("status", "Статус мониторинга"),
+    ]
+    await app.bot.set_my_commands(commands)
+    await app.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 
 
 def main():
@@ -403,7 +454,8 @@ def main():
         .post_init(setup_bot_commands)
         .build()
     )
-    bot_app.add_handler(CommandHandler("start", cmd_start))
+    bot_app.add_handler(CommandHandler(["start", "menu"], cmd_start))
+    bot_app.add_handler(CommandHandler("status", cmd_status))
     bot_app.add_handler(CallbackQueryHandler(on_button))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     bot_app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=30)
