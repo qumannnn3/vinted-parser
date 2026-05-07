@@ -32,6 +32,8 @@ GOFISH_HOME_URL = "https://www.gofish.co.kr"
 GOFISH_MARKET_PRICE_MAX = 10_000_000
 GOFISH_MIN_MARKET_SAMPLES = 1
 GOFISH_MAX_MARKET_RATIO = 0.90
+GOFISH_TIMEOUT = 8
+GOFISH_SLEEP_ON_TIMEOUT = 3
 
 GOFISH_BLOCKED_WORDS = [
     "perfume", "fragrance", "향수", "룸스프레이",
@@ -56,7 +58,10 @@ def _headers(query=""):
     return {
         "User-Agent": random.choice(USER_AGENTS),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7",
-        "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Connection": "close",
         "Referer": f"{GOFISH_HOME_URL}/search?keyword={quote(str(query or ''))}",
     }
 
@@ -298,13 +303,11 @@ def fetch_gofish(query, price_min=None, price_max=None):
     search_urls = [
         f"{GOFISH_HOME_URL}/search?keyword={quote(query)}",
         f"{GOFISH_HOME_URL}/search?q={quote(query)}",
-        f"{GOFISH_HOME_URL}/products?keyword={quote(query)}",
-        f"{GOFISH_HOME_URL}/shop/search?keyword={quote(query)}",
     ]
 
     for url in search_urls:
         try:
-            response = session.get(url, headers=_headers(query), timeout=20)
+            response = session.get(url, headers=_headers(query), timeout=(4, GOFISH_TIMEOUT))
             if response.status_code != 200:
                 log.info("Gofish search %s -> HTTP %s", url, response.status_code)
                 continue
@@ -319,6 +322,14 @@ def fetch_gofish(query, price_min=None, price_max=None):
 
             if items:
                 break
+        except requests.exceptions.ReadTimeout:
+            log.warning("fetch_gofish '%s': timeout %ss url=%s", query, GOFISH_TIMEOUT, url)
+            time.sleep(GOFISH_SLEEP_ON_TIMEOUT)
+            continue
+        except requests.exceptions.ConnectTimeout:
+            log.warning("fetch_gofish '%s': connect timeout url=%s", query, url)
+            time.sleep(GOFISH_SLEEP_ON_TIMEOUT)
+            continue
         except Exception as e:
             log.warning("fetch_gofish '%s': %s", query, e)
 
@@ -406,6 +417,9 @@ def gofish_loop(bot_app):
                         market_items_by_id[found["id"]] = found
 
                 items = list(items_by_id.values())
+                if not items:
+                    log.info("SKIP Gofish no items for query: %s", query)
+                    continue
                 market_items = list(market_items_by_id.values()) or items
 
                 for item in items:
