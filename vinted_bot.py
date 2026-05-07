@@ -415,6 +415,35 @@ MERCARI_BLOCKED_WORDS = [
     "sticker", "card", "keychain", "時計", "腕時計", "置時計", "香水", "おもちゃ",
     "フィギュア", "ぬいぐるみ", "本", "雑誌", "ゲーム", "スマホ", "携帯",
     "カメラ", "充電器", "ケース", "ポスター", "ステッカー", "カード", "キーホルダー",
+    "copy", "replica", "fake", "копия", "реплика", "подделка", "偽物", "コピー",
+    "模倣", "ノーブランド", "no brand", "brand unknown", "ファックス コピー",
+    "style", "inspired", "type", "look", "風", "タイプ", "系", "オマージュ",
+    "junk", "damaged", "broken", "stain", "dirty", "hole", "repair", "parts",
+    "ジャンク", "汚れ", "シミ", "穴", "破れ", "傷", "訳あり", "難あり",
+]
+
+MERCARI_BLOCKED_WORDS += [
+    "drum", "drums", "snare", "cymbal", "guitar", "bass guitar", "piano",
+    "keyboard", "trumpet", "sax", "saxophone", "flute", "clarinet", "violin",
+    "instrument", "musical instrument", "amplifier", "amp", "microphone",
+    "speaker", "mixer", "audio interface", "record", "vinyl", "lp",
+    "ドラム", "スネア", "シンバル", "ギター", "ベース", "ピアノ", "キーボード",
+    "トランペット", "サックス", "フルート", "クラリネット", "バイオリン",
+    "楽器", "音楽", "アンプ", "マイク", "スピーカー", "レコード",
+    "барабан", "гитара", "пианино", "синтезатор", "саксофон", "скрипка",
+    "музык", "инструмент",
+    "valencia", "pearl valencia",
+    "necklace", "ring", "earring", "bracelet", "pendant", "jewelry",
+    "ネックレス", "リング", "ピアス", "ブレスレット", "ジュエリー",
+]
+
+MERCARI_KIND_GROUPS = [
+    ("shoes", ["sneaker", "sneakers", "shoe", "shoes", "boots", "loafer", "loafers", "sandals", "スニーカー", "シューズ", "靴", "ブーツ", "サンダル"]),
+    ("bag", ["bag", "bags", "backpack", "wallet", "shoulder bag", "tote", "pouch", "バッグ", "リュック", "財布", "ショルダーバッグ", "トート", "ポーチ"]),
+    ("tops", ["shirt", "t-shirt", "tee", "hoodie", "sweatshirt", "sweat", "sweater", "knit", "cardigan", "polo", "シャツ", "tシャツ", "パーカー", "スウェット", "ニット", "カーディガン"]),
+    ("outerwear", ["jacket", "coat", "blouson", "vest", "parka", "down jacket", "ジャケット", "コート", "ブルゾン", "ベスト", "ダウン"]),
+    ("bottoms", ["pants", "jeans", "denim", "trousers", "shorts", "skirt", "cargo", "パンツ", "デニム", "ジーンズ", "ショーツ", "スカート"]),
+    ("accessory", ["cap", "hat", "beanie", "belt", "scarf", "gloves", "sunglasses", "帽子", "キャップ", "ハット", "ニット帽", "ベルト", "マフラー", "手袋", "サングラス"]),
 ]
 
 def _mercari_text_blob(item):
@@ -429,11 +458,104 @@ def _mercari_text_blob(item):
             parts.append(str(val))
     return " ".join(parts).lower()
 
+def _contains_term(text, term):
+    term = str(term).lower().strip()
+    if not term:
+        return False
+    if re.fullmatch(r"[a-z0-9][a-z0-9 .&'/-]*[a-z0-9]", term):
+        pattern = r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])"
+        return re.search(pattern, text) is not None
+    return term in text
+
+def _has_any_term(text, terms):
+    return any(_contains_term(text, term) for term in terms)
+
+def _brand_tokens(brand):
+    tokens = [brand.lower()]
+    aliases = {
+        "stone island": ["stone island", "stoneisland", "ストーンアイランド"],
+        "balenciaga": ["balenciaga", "バレンシアガ"],
+        "bape": ["bape", "a bathing ape", "ベイプ", "エイプ", "アベイシングエイプ"],
+        "aape": ["aape", "aape by a bathing ape", "エーエイプ"],
+        "gucci": ["gucci", "グッチ"],
+        "chanel": ["chanel", "シャネル"],
+        "jeremy scott": ["jeremy scott", "ジェレミースコット"],
+        "undercover": ["undercover", "under cover", "アンダーカバー"],
+        "comme des garcons": ["comme des garcons", "comme des garçons", "garcons", "garçons", "cdg", "コムデギャルソン"],
+        "yohji yamamoto": ["yohji yamamoto", "yohji", "ヨウジヤマモト"],
+        "vetements": ["vetements", "ヴェトモン"],
+        "palm angels": ["palm angels", "パームエンジェルス"],
+        "givenchy": ["givenchy", "ジバンシィ", "ジバンシー"],
+        "burberry": ["burberry", "バーバリー"],
+        "supreme": ["supreme", "シュプリーム"],
+        "amiri": ["amiri", "アミリ"],
+        "raf simons": ["raf simons", "ラフシモンズ"],
+        "acne studios": ["acne studios", "acne", "アクネ"],
+        "alyx": ["alyx", "1017 alyx", "1017 alyx 9sm", "アリクス"],
+        "maison margiela": ["maison margiela", "margiela", "マルジェラ"],
+    }
+    tokens.extend(aliases.get(brand.lower(), []))
+    return [token for token in dict.fromkeys(tokens) if token]
+
 def is_relevant_mercari_item(item):
     text = _mercari_text_blob(item)
-    if any(word in text for word in MERCARI_BLOCKED_WORDS):
+    if _has_any_term(text, MERCARI_BLOCKED_WORDS):
         return False
-    return any(word in text for word in MERCARI_ALLOWED_WORDS)
+    return bool(mercari_item_kind(item))
+
+def mercari_matches_brand(item, brand):
+    text = _mercari_text_blob(item)
+    return _has_any_term(text, _brand_tokens(brand))
+
+def _best_mercari_image_url(url):
+    if not url:
+        return ""
+    url = str(url)
+    url = re.sub(r"([?&])(w|width|h|height)=\d+&?", r"\1", url)
+    url = url.replace("?=", "?").replace("&&", "&").rstrip("?&")
+    url = re.sub(r"/resize:[^/]+/", "/", url)
+    url = re.sub(r"_(?:thumb|small|medium)(\.[a-zA-Z0-9]+)$", r"\1", url)
+    return url
+
+def mercari_item_kind(item):
+    text = _mercari_text_blob(item)
+    for kind, words in MERCARI_KIND_GROUPS:
+        if _has_any_term(text, words):
+            return kind
+    return ""
+
+def _median(values):
+    values = sorted(values)
+    if not values:
+        return None
+    mid = len(values) // 2
+    if len(values) % 2:
+        return values[mid]
+    return int((values[mid - 1] + values[mid]) / 2)
+
+def mercari_market_price_jpy(items, target_item, brand):
+    target_kind = mercari_item_kind(target_item)
+    target_id = target_item.get("id")
+    prices = []
+    for item in items or []:
+        if target_id and item.get("id") == target_id:
+            continue
+        try:
+            price = int(item.get("price", 0))
+        except (TypeError, ValueError):
+            continue
+        if price <= 0:
+            continue
+        if not mercari_matches_brand(item, brand):
+            continue
+        if not is_relevant_mercari_item(item):
+            continue
+        if mercari_item_kind(item) != target_kind:
+            continue
+        prices.append(price)
+    if len(prices) < 3:
+        return None
+    return _median(prices)
 
 def _mercari_item_id_from_url(url):
     if not url:
@@ -468,6 +590,7 @@ def _normalize_mercari_item(item):
     if not thumb and thumbnails:
         first = thumbnails[0]
         thumb = first if isinstance(first, str) else _obj_get(first, "url", "image_url", "src", default="")
+    thumb = _best_mercari_image_url(thumb)
     url = _mercari_item_url(item_id, url)
     return {
         "id": str(item_id or ""),
@@ -591,12 +714,16 @@ def mercari_loop():
                 if not (state["mercari_min"] <= price <= state["mercari_max"]):
                     log.info(f"SKIP Mercari price {price}: {name[:60]}")
                     continue
+                if not mercari_matches_brand(item, brand):
+                    log.info(f"SKIP Mercari brand mismatch '{brand}': {name[:60]}")
+                    continue
                 if not is_relevant_mercari_item(item):
                     log.info(f"SKIP Mercari category: {name[:60]}")
                     continue
 
                 thumbs    = item.get("thumbnails") or item.get("item_images") or []
                 thumb     = (thumbs[0].get("url") or thumbs[0].get("image_url", "")) if thumbs else ""
+                thumb     = _best_mercari_image_url(thumb)
                 iid2      = item.get("id", "")
                 link      = item.get("url") or f"https://jp.mercari.com/item/{iid2}"
                 if not link or link.rstrip("/").endswith("/item"):
@@ -605,11 +732,18 @@ def mercari_loop():
                 name_ru   = translate_to_ru(name)
                 rate      = get_jpy_to_eur()
                 eur       = round(price * rate, 2) if rate else None
+                market_jpy = mercari_market_price_jpy(items, item, brand)
+                if market_jpy and price > market_jpy * 0.95:
+                    log.info(f"SKIP Mercari not under market {price}/{market_jpy}: {name[:60]}")
+                    continue
                 if eur:
-                    market_eur = round(eur * 1.3, 0)
-                    price_str  = f"¥{price:,} = {eur:.0f}€ / рынок от {market_eur:.0f}€"
+                    if market_jpy:
+                        market_eur = round(market_jpy * rate, 0)
+                        price_str  = f"сайт: ¥{price:,} = {eur:.0f}€ / рынок: ~{market_eur:.0f}€"
+                    else:
+                        price_str  = f"сайт: ¥{price:,} = {eur:.0f}€ / рынок: мало данных"
                 else:
-                    price_str = f"¥{price:,}"
+                    price_str = f"сайт: ¥{price:,} / рынок: мало данных"
 
                 lines = [
                     "🔔 <b>Новый товар!</b>",
@@ -1348,8 +1482,9 @@ def filters_kb(market=None):
     market = market or state.get("current_market") or "vinted"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("Остановить" if _market_running(market) else "Запустить", callback_data=f"toggle_{market}")],
-        [InlineKeyboardButton("Фильтры", callback_data=f"filters_{market}"),
-         InlineKeyboardButton(_market_title(market), callback_data=f"pick_{market}")],
+        [InlineKeyboardButton("Цена", callback_data=f"price_{market}"),
+         InlineKeyboardButton("Фильтры", callback_data=f"filters_{market}")],
+        [InlineKeyboardButton(_market_title(market), callback_data=f"pick_{market}")],
         [InlineKeyboardButton("Сменить площадку", callback_data="back")],
     ])
 
