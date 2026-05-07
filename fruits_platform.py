@@ -5,6 +5,7 @@ import re
 import time
 
 import requests
+from urllib.parse import quote
 
 from shared import (
     ALL_BRANDS,
@@ -74,11 +75,61 @@ def _headers(query):
     }
 
 
+def _base36(number):
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+    number = int(number)
+    if number == 0:
+        return "0"
+    result = ""
+    while number:
+        number, remainder = divmod(number, 36)
+        result = alphabet[remainder] + result
+    return result
+
+
+def _fruits_product_id(raw_id):
+    """
+    FruitsFamily public URLs use a short base36 product id.
+
+    The GraphQL API can return either that short id already, or a numeric id.
+    If we put the numeric id directly into /product/<id>/<slug>, Fruits shows
+    '잘못된 접근입니다.' / 'Неверный доступ'.
+    """
+    value = str(raw_id or "").strip()
+    if not value:
+        return ""
+
+    # Sometimes ids come as plain decimal strings. Public site expects base36.
+    if value.isdigit():
+        return _base36(value)
+
+    # If an id is embedded in a GraphQL/global-id-like string, convert the
+    # trailing numeric part. Otherwise keep the existing short id.
+    match = re.search(r"(\d+)$", value)
+    if match and len(match.group(1)) >= 5:
+        return _base36(match.group(1))
+
+    return value.lower()
+
+
 def _slug(text):
     value = str(text or "").strip().lower()
     value = re.sub(r"\s+", "-", value)
     value = re.sub(r"[^a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ_-]+", "", value)
     return value.strip("-") or "item"
+
+
+def _fruits_product_url(item_id, title, external_url=None):
+    external = str(external_url or "").strip()
+    if external.startswith("https://fruitsfamily.com/product/") or external.startswith("https://production.fruitsfamily.com/product/"):
+        return external
+
+    public_id = _fruits_product_id(item_id)
+    if not public_id:
+        return FRUITS_HOME_URL
+
+    slug = quote(_slug(title), safe="")
+    return f"{FRUITS_HOME_URL}/product/{public_id}/{slug}"
 
 
 def _text_blob(item):
@@ -140,43 +191,21 @@ def fruits_fashion_kind(item):
     return "other"
 
 
-def _median(values):
-    values = sorted(values)
-    if not values:
-        return None
-    mid = len(values) // 2
-    if len(values) % 2:
-        return values[mid]
-    return int((values[mid - 1] + values[mid]) / 2)
-
-
 def fruits_market_price_krw(items, target_item, brand, keyword=None):
-    target_kind = fruits_fashion_kind(target_item)
-    target_id = target_item.get("id")
-    prices = []
-    for item in items or []:
-        if target_id and item.get("id") == target_id:
-            continue
-        try:
-            price = int(item.get("price", 0))
-        except (TypeError, ValueError):
-            continue
-        if price <= 0:
-            continue
-        if not is_relevant_fruits_item(item, brand):
-            continue
-        if fruits_fashion_kind(item) != target_kind:
-            continue
-        if keyword and not fruits_matches_keyword(item, keyword):
-            continue
-        prices.append(price)
-    if len(prices) < FRUITS_MIN_MARKET_SAMPLES:
-        return None
-    prices = sorted(prices)
-    if len(prices) >= 7:
-        cut = max(1, int(len(prices) * 0.1))
-        prices = prices[cut:-cut] or prices
-    return {"price": _median(prices), "count": len(prices)}
+    from market_price import calculate_market_price
+
+    return calculate_market_price(
+        items,
+        target_item,
+        price_getter=lambda item: item.get("price", 0),
+        id_getter=lambda item: item.get("id"),
+        item_filter=lambda item: (
+            is_relevant_fruits_item(item, brand)
+            and (not keyword or fruits_matches_keyword(item, keyword))
+        ),
+        kind_getter=fruits_fashion_kind,
+        min_samples=FRUITS_MIN_MARKET_SAMPLES,
+    )
 
 
 def _normalize_fruits_item(item):
@@ -196,7 +225,7 @@ def _normalize_fruits_item(item):
         "size": item.get("size") or "",
         "condition": item.get("condition") or "",
         "like_count": item.get("like_count") or 0,
-        "url": f"{FRUITS_HOME_URL}/product/{item_id}/{_slug(title)}" if item_id else FRUITS_HOME_URL,
+        "url": _fruits_product_url(item_id, title, item.get("external_url")),
     }
 
 
