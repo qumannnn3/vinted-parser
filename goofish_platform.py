@@ -36,7 +36,10 @@ GOFISH_SEARCH_API = "mtop.taobao.idlemtopsearch.pc.search"
 GOFISH_APP_KEY = os.environ.get("GOOFISH_APP_KEY", "34839810")
 GOOFISH_COOKIE = os.environ.get(
     "GOOFISH_COOKIE",
-    os.environ.get("GOOFISH_COOKIE_STRING", os.environ.get("GOFISH_COOKIE_STRING", "")),
+    os.environ.get(
+        "GOFISH_COOKIE",
+        os.environ.get("GOOFISH_COOKIE_STRING", os.environ.get("GOFISH_COOKIE_STRING", "")),
+    ),
 )
 
 GOFISH_MARKET_PRICE_MAX = 10_000_000
@@ -47,6 +50,7 @@ GOFISH_TIMEOUT_LIMIT = 3
 
 _gofish_timeout_streak = 0
 _gofish_disabled_until = 0
+_gofish_cookie_error_logged = False
 
 
 GOFISH_BLOCKED_WORDS = [
@@ -115,6 +119,29 @@ def _token_from_session(session):
 def _sign(token, timestamp_ms, data_text):
     raw = f"{token}&{timestamp_ms}&{GOFISH_APP_KEY}&{data_text}"
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+def _prime_mtop_token(session, data_text):
+    t = str(int(time.time() * 1000))
+    params = {
+        "jsv": "2.7.2",
+        "appKey": GOFISH_APP_KEY,
+        "t": t,
+        "sign": _sign("", t, data_text),
+        "v": "1.0",
+        "type": "originaljson",
+        "accountSite": "xianyu",
+        "dataType": "json",
+        "timeout": "20000",
+        "api": GOFISH_SEARCH_API,
+        "sessionOption": "AutoLoginOnly",
+        "spm_cnt": "a21ybx.search.0.0",
+    }
+    url = f"{GOFISH_MTOP_HOST}/h5/{GOFISH_SEARCH_API}/1.0/"
+    try:
+        session.post(url, params=params, data={"data": data_text}, timeout=(5, 10))
+    except Exception as e:
+        log.warning("Goofish token prime failed: %s", e)
 
 
 def _text_blob(item):
@@ -293,7 +320,7 @@ def _search_payload(query, page=1, rows=30, price_min=None, price_max=None):
 
 
 def _mtop_search(query, price_min=None, price_max=None):
-    global _gofish_timeout_streak, _gofish_disabled_until
+    global _gofish_timeout_streak, _gofish_disabled_until, _gofish_cookie_error_logged
 
     if _gofish_disabled_until and time.time() < _gofish_disabled_until:
         log.warning("Goofish временно отключен после timeout, осталось %ss", int(_gofish_disabled_until - time.time()))
@@ -307,13 +334,23 @@ def _mtop_search(query, price_min=None, price_max=None):
     except Exception:
         pass
 
-    token = _token_from_session(session)
-    if not token:
-        log.error("Goofish cookie не задан или нет _m_h5_tk. Добавь env GOOFISH_COOKIE из браузера.")
-        return []
-
     data_obj = _search_payload(query, page=1, rows=30, price_min=price_min, price_max=price_max)
     data_text = json.dumps(data_obj, ensure_ascii=False, separators=(",", ":"))
+
+    token = _token_from_session(session)
+    if not token:
+        _prime_mtop_token(session, data_text)
+        token = _token_from_session(session)
+    if not token:
+        if not _gofish_cookie_error_logged:
+            log.error(
+                "Goofish не получил _m_h5_tk. Добавь env GOOFISH_COOKIE из браузера "
+                "или проверь старые env GOFISH_COOKIE/GOOFISH_COOKIE_STRING."
+            )
+            _gofish_cookie_error_logged = True
+        state["gofish_running"] = False
+        return []
+
     t = str(int(time.time() * 1000))
     sign = _sign(token, t, data_text)
 
@@ -341,6 +378,7 @@ def _mtop_search(query, price_min=None, price_max=None):
             log.warning("Goofish API ret=%s query=%r", ret, query)
             if any("TOKEN" in str(x).upper() or "FAIL_SYS" in str(x).upper() for x in ret):
                 log.error("Goofish cookie устарел. Обнови env GOOFISH_COOKIE.")
+                state["gofish_running"] = False
             return []
 
         _gofish_timeout_streak = 0
