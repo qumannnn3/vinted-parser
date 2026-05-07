@@ -251,17 +251,15 @@ async def _send_fruits_item(bot_app, image, msg):
     for chat_id in chat_ids:
         if image:
             try:
-                await bot_app.bot.send_document(
+                await bot_app.bot.send_photo(
                     chat_id=chat_id,
-                    document=image,
+                    photo=image,
                     caption=msg,
                     parse_mode="HTML",
-                    filename="image.jpg",
-                    disable_content_type_detection=True,
                 )
                 continue
             except Exception as e:
-                log.warning("FruitsFamily send_document failed for chat %s: %s", chat_id, e)
+                log.warning("FruitsFamily send_photo failed for chat %s: %s", chat_id, e)
         try:
             await bot_app.bot.send_message(
                 chat_id=chat_id,
