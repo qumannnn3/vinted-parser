@@ -15,6 +15,7 @@ from shared import (
     PROXY_URL,
     VINTED_REGIONS,
     age_range_label,
+    brand_aliases,
     fruits_price_range_label,
     keywords_label,
     log,
@@ -195,45 +196,129 @@ def filters_kb(market=None):
 
 
 def status_text():
-    tf = state.get("_vinted_ts_field") or "не определено"
     return (
         "<b>Статус</b>\n\n"
-        f"<b>Vinted</b> {'🟢' if state['vinted_running'] else '🔴'}\n"
-        f"└ Циклов: {state['vinted_stats']['cycles']} | Находок: {state['vinted_stats']['found']}\n"
-        f"└ Цена: {vinted_price_range_label()} | {_age_label('vinted')}\n"
-        f"└ Ключи: {_keywords_label('vinted')}\n"
-        f"└ Поле времени: <code>{tf}</code>\n\n"
-        f"<b>Mercari.jp</b> {'🟢' if state['mercari_running'] else '🔴'}\n"
-        f"└ Циклов: {state['mercari_stats']['cycles']} | Находок: {state['mercari_stats']['found']}\n"
-        f"└ Цена: {mercari_price_range_label()} | {_age_label('mercari')}\n"
-        f"└ Ключи: {_keywords_label('mercari')}\n\n"
-        f"<b>FruitsFamily</b> {'🟢' if state['fruits_running'] else '🔴'}\n"
-        f"└ Циклов: {state['fruits_stats']['cycles']} | Находок: {state['fruits_stats']['found']}\n"
-        f"└ Цена: {fruits_price_range_label()} | {_age_label('fruits')}\n"
-        f"└ Ключи: {_keywords_label('fruits')}\n\n"
-        f"Брендов: {len(state['active_brands'])}/{len(ALL_BRANDS)}"
+        "<b>Vinted</b> online\n"
+        "<b>Mercari</b> online\n"
+        "<b>FruitsFamily</b> online"
     )
 
 
+BRANDS_PER_PAGE = 12
+BRAND_NAME_OVERRIDES = {
+    "aape": "Aape",
+    "acronym": "ACRONYM",
+    "alyx": "ALYX",
+    "amiri": "AMIRI",
+    "bape": "Bape",
+    "cp company": "C.P. Company",
+    "dolce&gabbana": "Dolce & Gabbana",
+    "dsquared2": "Dsquared2",
+    "erd": "ERD",
+    "lgb": "LGB",
+    "mcm": "MCM",
+    "y-3": "Y-3",
+}
+
+
+def _brand_name(brand):
+    brand = str(brand or "").strip()
+    return BRAND_NAME_OVERRIDES.get(brand.lower(), brand.title())
+
+
+def _brand_matches_query(brand, query):
+    query = str(query or "").lower().strip()
+    if not query:
+        return True
+    texts = [brand, *brand_aliases(brand)]
+    return any(query in str(text or "").lower() for text in texts)
+
+
+def _visible_brands():
+    query = state.get("brands_query", "")
+    active_only = bool(state.get("brands_active_only"))
+    brands = [brand for brand in ALL_BRANDS if _brand_matches_query(brand, query)]
+    if active_only:
+        brands = [brand for brand in brands if brand in state["active_brands"]]
+    return brands
+
+
+def _brands_pages_count():
+    return max(1, (len(_visible_brands()) - 1) // BRANDS_PER_PAGE + 1)
+
+
+def _normalize_brands_page(page):
+    try:
+        page = int(page)
+    except (TypeError, ValueError):
+        page = 0
+    return max(0, min(page, _brands_pages_count() - 1))
+
+
+def brands_text(page=0):
+    page = _normalize_brands_page(page)
+    visible = _visible_brands()
+    query = state.get("brands_query", "").strip()
+    active_only = bool(state.get("brands_active_only"))
+    active_count = len(state["active_brands"])
+    total_count = len(ALL_BRANDS)
+
+    parts = [
+        "<b>Бренды</b>",
+        f"Активны: <b>{active_count}</b>/<b>{total_count}</b>",
+    ]
+    if query:
+        parts.append(f"Поиск: <code>{query}</code>")
+    if active_only:
+        parts.append("Режим: показываю только выбранные")
+    parts.append(f"Страница: <b>{page + 1}</b>/<b>{_brands_pages_count()}</b>")
+    parts.append("")
+    parts.append("Нажимай на бренд, чтобы включить или выключить его.")
+    if not visible:
+        parts.append("\nНичего не найдено. Сбрось поиск или выбери другой запрос.")
+    return "\n".join(parts)
+
+
 def brands_kb(page=0):
-    per_page = 5
-    start = page * per_page
-    chunk = ALL_BRANDS[start:start + per_page]
+    page = _normalize_brands_page(page)
+    state["brands_page"] = page
+
+    visible = _visible_brands()
+    start = page * BRANDS_PER_PAGE
+    chunk = visible[start:start + BRANDS_PER_PAGE]
     rows = []
+
+    buttons = []
     for brand in chunk:
         active = brand in state["active_brands"]
-        icon = "✅" if active else "☐"
-        rows.append([InlineKeyboardButton(f"{icon} {brand.title()}", callback_data=f"brand_{brand}")])
+        icon = "✅" if active else "▫️"
+        buttons.append(InlineKeyboardButton(f"{icon} {_brand_name(brand)}", callback_data=f"brand_{brand}"))
+
+    for i in range(0, len(buttons), 2):
+        rows.append(buttons[i:i + 2])
+
+    if not buttons:
+        rows.append([InlineKeyboardButton("Ничего не найдено", callback_data="noop_empty_brands")])
+
+    pages = _brands_pages_count()
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton("‹", callback_data=f"brands_{page - 1}"))
-    nav.append(InlineKeyboardButton(f"{page + 1}/{(len(ALL_BRANDS) - 1) // per_page + 1}", callback_data="noop_page"))
-    if start + per_page < len(ALL_BRANDS):
-        nav.append(InlineKeyboardButton("›", callback_data=f"brands_{page + 1}"))
+        nav.append(InlineKeyboardButton("‹ Назад", callback_data=f"brands_{page - 1}"))
+    nav.append(InlineKeyboardButton(f"{page + 1}/{pages}", callback_data="noop_page"))
+    if page + 1 < pages:
+        nav.append(InlineKeyboardButton("Вперёд ›", callback_data=f"brands_{page + 1}"))
     rows.append(nav)
+
     rows.append([
-        InlineKeyboardButton("✅ Все", callback_data="brands_all"),
-        InlineKeyboardButton("☐ Снять все", callback_data="brands_none"),
+        InlineKeyboardButton("🔎 Поиск", callback_data="brands_search"),
+        InlineKeyboardButton("🧹 Сброс", callback_data="brands_clear"),
+    ])
+    rows.append([
+        InlineKeyboardButton("📌 Выбранные" if not state.get("brands_active_only") else "📋 Все бренды", callback_data="brands_active_only"),
+    ])
+    rows.append([
+        InlineKeyboardButton("✅ Выбрать показанные", callback_data="brands_all"),
+        InlineKeyboardButton("☐ Снять показанные", callback_data="brands_none"),
     ])
     rows.append([InlineKeyboardButton("↻ Назад", callback_data=f"pick_{state.get('current_market') or 'vinted'}")])
     return InlineKeyboardMarkup(rows)
@@ -458,36 +543,65 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await edit(status_text(), main_kb())
         return
 
+    if data == "brands_search":
+        state["awaiting"] = "brand_search"
+        await edit(
+            "<b>Поиск бренда</b>\n\n"
+            "Введи часть названия или алиаса.\n"
+            "Например: <code>rick</code>, <code>margiela</code>, <code>cdg</code>.\n\n"
+            "Чтобы сбросить поиск, отправь <code>-</code>.",
+            brands_kb(state.get("brands_page", 0)),
+        )
+        return
+
+    if data == "brands_clear":
+        state["brands_query"] = ""
+        state["brands_active_only"] = False
+        await edit(brands_text(0), brands_kb(0))
+        return
+
+    if data == "brands_active_only":
+        state["brands_active_only"] = not bool(state.get("brands_active_only"))
+        await edit(brands_text(0), brands_kb(0))
+        return
+
     if data.startswith("brands_") and data not in ("brands_all", "brands_none"):
         try:
             page = int(data.split("_")[1])
         except (IndexError, ValueError):
             page = 0
-        await edit(
-            f"<b>Бренды</b>\n\nАктивны: {len(state['active_brands'])}/{len(ALL_BRANDS)}\n"
-            f"Страница {page + 1}/{(len(ALL_BRANDS) - 1) // 5 + 1}",
-            brands_kb(page),
-        )
+        page = _normalize_brands_page(page)
+        await edit(brands_text(page), brands_kb(page))
         return
 
     if data == "brands_all":
-        state["active_brands"] = set(ALL_BRANDS)
-        await edit(f"<b>Бренды</b>\n\nВсе {len(ALL_BRANDS)} брендов активны.", brands_kb(0))
+        targets = _visible_brands()
+        if not targets:
+            await q.answer("Нет брендов для выбора", show_alert=True)
+            return
+        state["active_brands"].update(targets)
+        await edit(brands_text(state.get("brands_page", 0)), brands_kb(state.get("brands_page", 0)))
         return
 
     if data == "brands_none":
-        state["active_brands"] = set()
-        await edit("<b>Бренды</b>\n\nВсе бренды отключены.", brands_kb(0))
+        targets = _visible_brands()
+        if not targets:
+            await q.answer("Нет брендов для снятия", show_alert=True)
+            return
+        state["active_brands"].difference_update(targets)
+        await edit(brands_text(state.get("brands_page", 0)), brands_kb(state.get("brands_page", 0)))
         return
 
     if data.startswith("brand_"):
         brand = data[6:]
         if brand in state["active_brands"]:
             state["active_brands"].discard(brand)
+            await q.answer(f"Выключено: {_brand_name(brand)}")
         else:
             state["active_brands"].add(brand)
-        page = next((i // 5 for i, b in enumerate(ALL_BRANDS) if b == brand), 0)
-        await edit(f"<b>Бренды</b>\n\nАктивны: {len(state['active_brands'])}/{len(ALL_BRANDS)}", brands_kb(page))
+            await q.answer(f"Включено: {_brand_name(brand)}")
+        page = next((i // BRANDS_PER_PAGE for i, b in enumerate(_visible_brands()) if b == brand), state.get("brands_page", 0))
+        await edit(brands_text(page), brands_kb(page))
         return
 
     if data.startswith("noop_"):
@@ -535,6 +649,18 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     text = raw_text.replace(",", ".")
+
+    if aw == "brand_search":
+        query = raw_text.strip()
+        state["brands_query"] = "" if query.lower() in ("-", "—", "сброс", "clear") else query
+        state["brands_active_only"] = False
+        state["awaiting"] = None
+        await update.message.reply_text(
+            brands_text(0),
+            parse_mode="HTML",
+            reply_markup=brands_kb(0),
+        )
+        return
 
     if aw in ("vinted_keywords", "mercari_keywords", "fruits_keywords"):
         market = "fruits" if aw == "fruits_keywords" else ("mercari" if aw == "mercari_keywords" else "vinted")
