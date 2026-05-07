@@ -98,6 +98,15 @@ state = {
     "mercari_interval": 300,
     "mercari_seen": set(),
     "mercari_stats": {"found": 0, "cycles": 0},
+    "fruits_running": False,
+    "fruits_min": 10000,
+    "fruits_max": 1000000,
+    "fruits_min_age_hours": 0,
+    "fruits_max_age_hours": MAX_AGE_HOURS,
+    "fruits_keywords": [],
+    "fruits_interval": 300,
+    "fruits_seen": set(),
+    "fruits_stats": {"found": 0, "cycles": 0},
 }
 
 log = logging.getLogger("parser")
@@ -236,6 +245,10 @@ def vinted_price_range_label():
 
 def mercari_price_range_label():
     return f"{int(state['mercari_min']):,}–{int(state['mercari_max']):,}¥"
+
+
+def fruits_price_range_label():
+    return f"{int(state['fruits_min']):,}–{int(state['fruits_max']):,}₩"
 
 
 def parse_keywords(text):
