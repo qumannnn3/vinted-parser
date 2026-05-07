@@ -74,6 +74,7 @@ USER_AGENTS = [
 
 state = {
     "chat_id": None,
+    "chat_ids": set(),
     "awaiting": None,
     "current_market": None,
     "brands_page": 0,
@@ -113,6 +114,24 @@ log = logging.getLogger("parser")
 MSK_TZ = timezone(timedelta(hours=3), "MSK")
 _eur_rate_cache = {"rate": None, "ts": 0}
 _fx_rate_cache = {}
+
+
+def register_chat_id(chat_id):
+    if chat_id is None:
+        return
+    try:
+        chat_id = int(chat_id)
+    except (TypeError, ValueError):
+        return
+    state["chat_id"] = chat_id
+    state.setdefault("chat_ids", set()).add(chat_id)
+
+
+def notification_chat_ids():
+    ids = set(state.get("chat_ids") or [])
+    if state.get("chat_id") is not None:
+        ids.add(state["chat_id"])
+    return sorted(ids)
 
 
 def get_jpy_to_eur() -> float:
@@ -278,11 +297,34 @@ def keywords_label(market):
     return text if len(text) <= 90 else text[:87] + "..."
 
 
+def _keyword_contains_brand(keyword, brand):
+    keyword_l = re.sub(r"\s+", " ", str(keyword or "").lower()).strip()
+    brand_l = re.sub(r"\s+", " ", str(brand or "").lower()).strip()
+    if not keyword_l or not brand_l:
+        return False
+    return brand_l in keyword_l or brand_l.replace(" ", "") in keyword_l.replace(" ", "")
+
+
+def _keyword_without_brand(keyword, brand):
+    result = str(keyword or "").strip()
+    brand_text = str(brand or "").strip()
+    if not result or not brand_text:
+        return result
+    pattern = re.escape(brand_text).replace(r"\ ", r"\s+")
+    result = re.sub(pattern, " ", result, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", result).strip(" ,;:-")
+
+
 def market_search_queries(brand, market):
     keywords = state.get(f"{market}_keywords", [])
     if not keywords:
         return [(brand, "")]
-    return [(f"{brand} {keyword}", keyword) for keyword in keywords]
+    queries = []
+    for keyword in keywords:
+        query = keyword if _keyword_contains_brand(keyword, brand) else f"{brand} {keyword}"
+        match_keyword = _keyword_without_brand(keyword, brand) if _keyword_contains_brand(keyword, brand) else keyword
+        queries.append((query, match_keyword))
+    return queries
 
 
 def parse_age_range(text):
