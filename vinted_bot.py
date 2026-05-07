@@ -510,17 +510,12 @@ def mercari_loop():
             for item in (items or []):
                 iid = item.get("id")
                 if iid in state["mercari_seen"]: continue
-                state["mercari_seen"].add(iid)
 
                 name  = item.get("name", "?")
                 price = item.get("price", 0)
                 try: price = int(price)
                 except (ValueError, TypeError): continue
                 if not (state["mercari_min"] <= price <= state["mercari_max"]): continue
-
-                name_l = name.lower()
-                word   = brand.split()[0]
-                if word not in name_l: continue
 
                 thumbs    = item.get("thumbnails") or item.get("item_images") or []
                 thumb     = (thumbs[0].get("url") or thumbs[0].get("image_url", "")) if thumbs else ""
@@ -544,6 +539,7 @@ def mercari_loop():
                     f"<a href='{link}'>Открыть</a>",
                 ]
                 msg = format_mercari_message(item, name, name_ru, price, price_str, link, thumb)
+                state["mercari_seen"].add(iid)
                 state["mercari_stats"]["found"] += 1
                 log.info(f"FOUND Mercari: {name} — ¥{price}")
                 if state["chat_id"] and bot_app:
@@ -1208,6 +1204,7 @@ def market_kb(market=None):
         [InlineKeyboardButton(run_text, callback_data=f"toggle_{market}")],
         [InlineKeyboardButton("Фильтры", callback_data=f"filters_{market}"),
          InlineKeyboardButton(_market_title(market), callback_data=f"pick_{market}")],
+        [InlineKeyboardButton("Сменить площадку", callback_data="back")],
     ])
 
 def filters_text(market=None):
@@ -1257,6 +1254,7 @@ def filters_kb(market=None):
         [InlineKeyboardButton("Остановить" if _market_running(market) else "Запустить", callback_data=f"toggle_{market}")],
         [InlineKeyboardButton("Фильтры", callback_data=f"filters_{market}"),
          InlineKeyboardButton(_market_title(market), callback_data=f"pick_{market}")],
+        [InlineKeyboardButton("Сменить площадку", callback_data="back")],
     ])
 
 def main():
