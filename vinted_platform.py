@@ -15,6 +15,7 @@ from shared import (
     USER_AGENTS,
     VINTED_REGIONS,
     age_in_range,
+    brand_match_terms,
     format_msk_timestamp,
     keyword_matches_text,
     log,
@@ -197,10 +198,8 @@ def vinted_matches_keyword(item, keyword):
 
 
 def is_relevant(item, brand):
-    title = item.get("title", "").lower()
-    brand_title = item.get("brand_title", "").lower()
-    word = brand.split()[0]
-    if not (word in title or word in brand_title):
+    text = _vinted_text_blob(item)
+    if not _has_any_term(text, brand_match_terms(brand)):
         return False
     if not is_deep_fashion_vinted_item(item):
         log.info("SKIP Vinted deep fashion filter: %s", item.get("title", "?")[:40])
