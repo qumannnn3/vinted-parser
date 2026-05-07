@@ -32,8 +32,8 @@ from shared import (
 
 vinted_sessions: dict[str, requests.Session] = {}
 
-VINTED_MIN_MARKET_SAMPLES = 5
-VINTED_MAX_MARKET_RATIO = 0.80
+VINTED_MIN_MARKET_SAMPLES = 1
+VINTED_MAX_MARKET_RATIO = 0.90
 VINTED_MARKET_PRICE_MAX_EUR = 5000
 
 
@@ -307,13 +307,17 @@ async def _send_vinted_item(bot_app, photo_url, msg):
     for chat_id in chat_ids:
         if photo_url:
             try:
-                await bot_app.bot.send_document(chat_id=chat_id, photo=photo_url, caption=msg, parse_mode="HTML",
-            filename="image.jpg",
-            disable_content_type_detection=True
-        )
+                await bot_app.bot.send_document(
+                    chat_id=chat_id,
+                    document=photo_url,
+                    caption=msg,
+                    parse_mode="HTML",
+                    filename="image.jpg",
+                    disable_content_type_detection=True,
+                )
                 continue
             except Exception as e:
-                log.warning("Vinted send_photo failed for chat %s: %s", chat_id, e)
+                log.warning("Vinted send_document failed for chat %s: %s", chat_id, e)
         try:
             await bot_app.bot.send_message(
                 chat_id=chat_id,
