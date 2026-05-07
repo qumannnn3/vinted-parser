@@ -42,13 +42,32 @@ def _to_int_price(value) -> Optional[int]:
     return None
 
 
+def _get_id(value: Any, id_getter: Optional[Callable[[Any], Any]] = None):
+    if id_getter:
+        try:
+            return id_getter(value)
+        except Exception:
+            return None
+
+    if isinstance(value, dict):
+        return value.get('id') or value.get('item_id') or value.get('product_id') or value.get('url')
+
+    return getattr(value, 'id', None) or getattr(value, 'item_id', None)
+
+
 def normalize_prices(
     prices: Iterable,
     price_getter: Optional[Callable[[Any], Any]] = None,
+    id_getter: Optional[Callable[[Any], Any]] = None,
+    exclude_id: Any = None,
 ) -> list[int]:
     normalized: list[int] = []
 
     for item in prices or []:
+        item_id = _get_id(item, id_getter=id_getter)
+        if exclude_id is not None and item_id is not None and str(item_id) == str(exclude_id):
+            continue
+
         raw_price = price_getter(item) if price_getter else item
         value = _to_int_price(raw_price)
         if value is not None:
@@ -79,8 +98,16 @@ def calculate_market_price(
     prices: Iterable,
     min_required: int = MIN_REQUIRED_PRICES,
     price_getter: Optional[Callable[[Any], Any]] = None,
+    id_getter: Optional[Callable[[Any], Any]] = None,
+    exclude_id: Any = None,
+    **kwargs,
 ) -> Optional[int]:
-    normalized = normalize_prices(prices, price_getter=price_getter)
+    normalized = normalize_prices(
+        prices,
+        price_getter=price_getter,
+        id_getter=id_getter,
+        exclude_id=exclude_id,
+    )
 
     if len(normalized) < min_required:
         return None
@@ -110,8 +137,15 @@ def build_market_result(
     current_price: int,
     comparable_prices: Iterable,
     price_getter: Optional[Callable[[Any], Any]] = None,
+    id_getter: Optional[Callable[[Any], Any]] = None,
+    exclude_id: Any = None,
 ) -> Optional[MarketPriceResult]:
-    prices = normalize_prices(comparable_prices, price_getter=price_getter)
+    prices = normalize_prices(
+        comparable_prices,
+        price_getter=price_getter,
+        id_getter=id_getter,
+        exclude_id=exclude_id,
+    )
     market_price = calculate_market_price(prices)
 
     if not market_price:
@@ -134,25 +168,22 @@ def is_profitable(
     return calculate_discount(current_price, market_price) >= min_discount_percent
 
 
-def market_line_jpy(current_price: int, comparable_prices: Iterable, price_getter=None) -> str:
-    result = build_market_result(current_price, comparable_prices, price_getter=price_getter)
+def market_line_jpy(current_price: int, comparable_prices: Iterable, price_getter=None, id_getter=None, exclude_id=None) -> str:
+    result = build_market_result(current_price, comparable_prices, price_getter=price_getter, id_getter=id_getter, exclude_id=exclude_id)
     if not result:
         return ''
-
     return f'Рынок: ~¥{result.market_price:,}, ниже на {result.discount_percent}%'
 
 
-def market_line_krw(current_price: int, comparable_prices: Iterable, price_getter=None) -> str:
-    result = build_market_result(current_price, comparable_prices, price_getter=price_getter)
+def market_line_krw(current_price: int, comparable_prices: Iterable, price_getter=None, id_getter=None, exclude_id=None) -> str:
+    result = build_market_result(current_price, comparable_prices, price_getter=price_getter, id_getter=id_getter, exclude_id=exclude_id)
     if not result:
         return ''
-
     return f'Рынок: ~₩{result.market_price:,}, ниже на {result.discount_percent}%'
 
 
-def market_line_eur(current_price: int, comparable_prices: Iterable, price_getter=None) -> str:
-    result = build_market_result(current_price, comparable_prices, price_getter=price_getter)
+def market_line_eur(current_price: int, comparable_prices: Iterable, price_getter=None, id_getter=None, exclude_id=None) -> str:
+    result = build_market_result(current_price, comparable_prices, price_getter=price_getter, id_getter=id_getter, exclude_id=exclude_id)
     if not result:
         return ''
-
     return f'Рынок: ~{result.market_price} EUR, ниже на {result.discount_percent}%'
