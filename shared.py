@@ -197,6 +197,15 @@ state = {
     "fruits_interval": 300,
     "fruits_seen": set(),
     "fruits_stats": {"found": 0, "cycles": 0},
+    "gofish_running": False,
+    "gofish_min": 10000,
+    "gofish_max": 1000000,
+    "gofish_min_age_hours": 0,
+    "gofish_max_age_hours": MAX_AGE_HOURS,
+    "gofish_keywords": [],
+    "gofish_interval": 300,
+    "gofish_seen": set(),
+    "gofish_stats": {"found": 0, "cycles": 0},
 }
 
 log = logging.getLogger("parser")
@@ -357,6 +366,10 @@ def mercari_price_range_label():
 
 def fruits_price_range_label():
     return f"{int(state['fruits_min']):,}–{int(state['fruits_max']):,}₩"
+
+
+def gofish_price_range_label():
+    return f"{int(state['gofish_min']):,}–{int(state['gofish_max']):,}₩"
 
 
 def parse_keywords(text):
