@@ -63,7 +63,94 @@ ALL_BRANDS = [
     "gucci", "chanel", "jeremy scott", "undercover", "comme des garcons",
     "yohji yamamoto", "vetements", "palm angels", "maison margiela",
     "givenchy", "burberry", "supreme", "amiri", "acne studios", "alyx",
+    "tornado mart", "14th addiction", "project g/r", "hysteric glamour",
+    "dolce&gabbana", "number nine", "grailz project", "y-3", "lgb",
+    "ed hardy", "mcm", "true religion", "guiseppe zanotti", "arcteryx",
+    "rick owens", "evisu", "saint laurent", "neighborhood", "prada",
+    "dior", "jaded london", "diesel", "alpha industries", "glory boyz",
+    "ralph lauren", "louis vuitton", "phillipp plein", "versace",
+    "rock revival", "armani", "mastermind", "alexander mqueen",
+    "cav empt", "buffalo bobs", "billionaire boys club", "acronym",
+    "swear", "vivienne westwood", "balmain", "issey miyake",
+    "if six was nine", "20471120", "cp company", "laoboutin",
+    "robin jeans", "гоша рубчинский", "ferragamo", "salem",
+    "marcelo burlon", "erd", "chrome hearts", "isabel marant",
+    "mihara yasuhiro", "carol cristian poell", "alice hollywood",
+    "moncler", "valentino", "hysterics", "helmut lang",
+    "maison martin margiela", "dsquared2",
 ]
+
+BRAND_ALIASES = {
+    "stone island": ["stoneisland", "stone isl", "ストーンアイランド"],
+    "balenciaga": ["バレンシアガ", "발렌시아가"],
+    "raf simons": ["rafsimons", "ラフシモンズ"],
+    "bape": ["a bathing ape", "abathingape", "エイプ", "베이프"],
+    "aape": ["aape by a bathing ape"],
+    "gucci": ["グッチ", "구찌"],
+    "chanel": ["シャネル", "샤넬"],
+    "jeremy scott": ["jeremyscott"],
+    "undercover": ["under cover", "アンダーカバー"],
+    "comme des garcons": ["comme des garçons", "comme des garcon", "cdg", "コムデギャルソン", "꼼데가르송"],
+    "yohji yamamoto": ["yohji", "ヨウジヤマモト", "요지 야마모토"],
+    "vetements": ["vetement", "ヴェトモン", "베트멍"],
+    "palm angels": ["palmangels"],
+    "maison margiela": ["margiela", "maison martin margiela", "martin margiela", "마르지엘라"],
+    "givenchy": ["ジバンシィ", "ジバンシー"],
+    "burberry": ["バーバリー", "버버리"],
+    "supreme": ["シュプリーム", "슈프림"],
+    "amiri": ["アミリ", "아미리"],
+    "acne studios": ["acne", "アクネ", "아크네"],
+    "alyx": ["1017 alyx 9sm", "alyx studio"],
+    "tornado mart": ["tornadomart", "トルネードマート"],
+    "14th addiction": ["fourteenth addiction", "14thaddiction"],
+    "project g/r": ["project gr", "project g r", "projectgr"],
+    "hysteric glamour": ["hysterics", "hysteric", "ヒステリックグラマー"],
+    "dolce&gabbana": ["dolce gabbana", "dolce and gabbana", "d&g", "ドルチェ&ガッバーナ"],
+    "number nine": ["number (n)ine", "number n ine", "numbernine", "ナンバーナイン"],
+    "grailz project": ["grailz", "grailzproject"],
+    "y-3": ["y3", "yohji adidas", "ワイスリー"],
+    "lgb": ["le grand bleu", "ルグランブルー"],
+    "ed hardy": ["edhardy"],
+    "true religion": ["truereligion"],
+    "guiseppe zanotti": ["giuseppe zanotti", "giuseppezanotti", "zanotti", "ジュゼッペザノッティ"],
+    "arcteryx": ["arc'teryx", "arc teryx", "arc-teryx", "veilance", "アークテリクス"],
+    "rick owens": ["rickowens", "drkshdw", "リックオウエンス", "릭 오웬스"],
+    "evisu": ["エヴィス", "エビス"],
+    "saint laurent": ["ysl", "yves saint laurent", "saintlaurent", "サンローラン"],
+    "neighborhood": ["nbhd", "ネイバーフッド"],
+    "dior": ["christian dior", "ディオール", "디올"],
+    "alpha industries": ["alpha"],
+    "glory boyz": ["gloryboyz", "glo gang", "gbe"],
+    "ralph lauren": ["polo ralph lauren"],
+    "louis vuitton": ["lv", "ルイヴィトン", "루이비통"],
+    "phillipp plein": ["philipp plein", "philip plein", "plein"],
+    "mastermind": ["mastermind japan", "mastermind world", "マスターマインド"],
+    "alexander mqueen": ["alexander mcqueen", "mcqueen"],
+    "cav empt": ["cavempt", "c.e", "c.e cavempt", "シーイー"],
+    "billionaire boys club": ["bbc ice cream", "icecream"],
+    "vivienne westwood": ["vivienne", "ヴィヴィアン"],
+    "issey miyake": ["issey", "イッセイミヤケ"],
+    "if six was nine": ["ifsixwasnine", "if six was9", "ifsixwas9"],
+    "cp company": ["c.p. company", "c.p company", "cpcompany"],
+    "laoboutin": ["louboutin", "christian louboutin", "ルブタン"],
+    "robin jeans": ["robin's jeans", "robins jeans"],
+    "гоша рубчинский": ["gosha rubchinskiy", "gosha rubchinsky", "gosha rubchinskiy"],
+    "ferragamo": ["salvatore ferragamo"],
+    "marcelo burlon": ["marcelo burlon county of milan", "county of milan"],
+    "erd": ["enfants riches deprimes", "enfants riches déprimés"],
+    "chrome hearts": ["クロムハーツ", "크롬하츠"],
+    "mihara yasuhiro": ["maison mihara yasuhiro", "mmy"],
+    "carol cristian poell": ["carol christian poell", "ccp"],
+    "hysterics": ["hysteric glamour", "ヒステリックグラマー"],
+    "maison martin margiela": ["maison margiela", "martin margiela", "margiela", "마르지엘라"],
+    "moncler": ["モンクレール", "몽클레어"],
+    "dsquared2": ["dsquared", "d squared2", "d squared"],
+}
+
+try:
+    MAX_BRAND_QUERY_VARIANTS = max(1, int(os.environ.get("MAX_BRAND_QUERY_VARIANTS", "4")))
+except ValueError:
+    MAX_BRAND_QUERY_VARIANTS = 4
 
 USER_AGENTS = [
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
@@ -297,34 +384,75 @@ def keywords_label(market):
     return text if len(text) <= 90 else text[:87] + "..."
 
 
+def _dedupe_texts(values):
+    result = []
+    seen = set()
+    for value in values:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return result
+
+
+def brand_aliases(brand):
+    return _dedupe_texts(BRAND_ALIASES.get(str(brand or "").lower().strip(), []))
+
+
+def brand_query_variants(brand):
+    return _dedupe_texts([brand, *brand_aliases(brand)])[:MAX_BRAND_QUERY_VARIANTS]
+
+
+def brand_match_terms(brand):
+    return _dedupe_texts([brand, *brand_aliases(brand)])
+
+
 def _keyword_contains_brand(keyword, brand):
     keyword_l = re.sub(r"\s+", " ", str(keyword or "").lower()).strip()
-    brand_l = re.sub(r"\s+", " ", str(brand or "").lower()).strip()
-    if not keyword_l or not brand_l:
+    if not keyword_l:
         return False
-    return brand_l in keyword_l or brand_l.replace(" ", "") in keyword_l.replace(" ", "")
+    compact_keyword = keyword_l.replace(" ", "")
+    for brand_text in brand_match_terms(brand):
+        brand_l = re.sub(r"\s+", " ", str(brand_text or "").lower()).strip()
+        if brand_l and (brand_l in keyword_l or brand_l.replace(" ", "") in compact_keyword):
+            return True
+    return False
 
 
 def _keyword_without_brand(keyword, brand):
     result = str(keyword or "").strip()
-    brand_text = str(brand or "").strip()
-    if not result or not brand_text:
+    if not result:
         return result
-    pattern = re.escape(brand_text).replace(r"\ ", r"\s+")
-    result = re.sub(pattern, " ", result, flags=re.IGNORECASE)
+    for brand_text in sorted(brand_match_terms(brand), key=len, reverse=True):
+        pattern = re.escape(brand_text).replace(r"\ ", r"\s+")
+        result = re.sub(pattern, " ", result, flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", result).strip(" ,;:-")
 
 
 def market_search_queries(brand, market):
     keywords = state.get(f"{market}_keywords", [])
     if not keywords:
-        return [(brand, "")]
+        return [(query_brand, "") for query_brand in brand_query_variants(brand)]
     queries = []
     for keyword in keywords:
-        query = keyword if _keyword_contains_brand(keyword, brand) else f"{brand} {keyword}"
-        match_keyword = _keyword_without_brand(keyword, brand) if _keyword_contains_brand(keyword, brand) else keyword
-        queries.append((query, match_keyword))
-    return queries
+        if _keyword_contains_brand(keyword, brand):
+            queries.append((keyword, _keyword_without_brand(keyword, brand)))
+            continue
+        for query_brand in brand_query_variants(brand):
+            queries.append((f"{query_brand} {keyword}", keyword))
+    result = []
+    seen = set()
+    for query, match_keyword in queries:
+        key = (query.lower().strip(), match_keyword.lower().strip())
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append((query, match_keyword))
+    return result
 
 
 def parse_age_range(text):
