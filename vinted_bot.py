@@ -155,6 +155,36 @@ def fetch_vinted(query, domain):
         return []
 
 
+def parse_vinted_ts(item):
+    """Возвращает unix timestamp публикации товара или None."""
+    from datetime import datetime, timezone
+
+    # Вариант 1: unix timestamp (целое или float)
+    for key in ("created_at_ts", "updated_at_ts"):
+        val = item.get(key)
+        if val:
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                pass
+
+    # Вариант 2: ISO строка "2025-05-06T14:23:00+02:00" или "2025-05-06 14:23:00 UTC"
+    for key in ("created_at", "updated_at"):
+        val = item.get(key)
+        if val and isinstance(val, str):
+            try:
+                # Убираем пробел перед UTC если есть
+                val = val.strip().replace(" UTC", "+00:00").replace(" ", "T")
+                dt = datetime.fromisoformat(val)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.timestamp()
+            except Exception:
+                pass
+
+    return None
+
+
 def is_relevant(item, brand):
     title  = item.get("title", "").lower()
     brand2 = item.get("brand_title", "").lower()
@@ -167,15 +197,17 @@ def is_relevant(item, brand):
         return False
 
     # Фильтр по возрасту — не старше vinted_max_age_hours
-    created_ts = item.get("created_at_ts") or item.get("updated_at_ts")
-    if created_ts:
-        try:
-            age_hours = (time.time() - float(created_ts)) / 3600
-            if age_hours > state["vinted_max_age_hours"]:
-                log.debug(f"Пропущен (старый {age_hours:.1f}ч): {item.get('title','?')}")
-                return False
-        except (ValueError, TypeError):
-            pass
+    ts = parse_vinted_ts(item)
+    if ts:
+        age_hours = (time.time() - ts) / 3600
+        if age_hours > state["vinted_max_age_hours"]:
+            log.info(f"⏭ Пропущен (старый {age_hours:.1f}ч): {item.get('title','?')}")
+            return False
+    else:
+        # Поля времени нет — логируем ключи один раз для диагностики
+        if not state.get("_ts_keys_logged"):
+            log.warning(f"⚠️ Нет поля времени в товаре. Доступные ключи: {list(item.keys())}")
+            state["_ts_keys_logged"] = True
 
     return True
 
