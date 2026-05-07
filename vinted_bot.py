@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import logging, time, threading, os, random, requests, json as _json, gzip, re, html
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
@@ -142,6 +143,18 @@ USER_AGENTS = [
 ]
 vinted_sessions: dict = {}
 mercari_api = None
+
+
+MSK_TZ = ZoneInfo("Europe/Moscow")
+
+def format_msk_time(ts):
+    if not ts:
+        return "только что"
+    try:
+        return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(MSK_TZ).strftime("%d-%m-%Y %H:%M МСК")
+    except Exception:
+        return "только что"
+
 
 def make_vinted_session(domain):
     s = requests.Session()
@@ -404,10 +417,17 @@ def vinted_loop():
                         p = photos[0]
                         photo_url = (
                             p.get("high_resolution", {}).get("url")
+                            or p.get("high_resolution", {}).get("jpeg_url")
                             or p.get("full_size_url")
+                            or p.get("image", {}).get("url")
                             or p.get("url")
+                            or p.get("no_watermark_url")
+                            or p.get("dominant_color")
                             or p.get("thumb_url", "")
                         )
+
+                        if "images" in photo_url:
+                            photo_url = photo_url.replace("thumbs", "images")
 
                     extra = []
                     if size: extra.append(f"Размер: {size}")
@@ -587,6 +607,9 @@ def _best_mercari_image_url(url):
     url = re.sub(r"_(?:thumb|small|medium)(\.[a-zA-Z0-9]+)$", r"\1", url)
     url = url.replace("/c_limit,w_240/", "/")
     url = url.replace("/thumbnail/", "/original/")
+    url = url.replace("c_limit,w_240", "c_limit,w_1080")
+    url = url.replace("w=240", "w=1200")
+    url = url.replace("h=240", "h=1200")
     return url
 
 def mercari_item_kind(item):
@@ -1102,12 +1125,38 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 def format_vinted_message(item, domain, title, title_ru, price, curr, link, photo_url, ts_d, brand_t, size, cond):
     country = domain.rsplit(".", 1)[-1].upper()
     seller = item.get("user", {}) or {}
-    seller_name = html.escape(str(seller.get("login") or seller.get("username") or "не указан"))
-    feedback_count = seller.get("feedback_count", 0)
-    positive_feedback = seller.get("positive_feedback_count", 0)
-    items_count = seller.get("item_count", 0)
+
+    seller_name = html.escape(str(
+        seller.get("login")
+        or seller.get("username")
+        or seller.get("profile_name")
+        or "не указан"
+    ))
+
+    feedback_count = int(
+        seller.get("feedback_count")
+        or seller.get("feedback_reputation")
+        or seller.get("reviews_count")
+        or 0
+    )
+
+    positive_feedback = int(
+        seller.get("positive_feedback_count")
+        or seller.get("successful_transactions")
+        or seller.get("sold_items_count")
+        or 0
+    )
+
+    items_count = int(
+        seller.get("item_count")
+        or seller.get("items_count")
+        or 0
+    )
+
     country_code = seller.get("country_code", "").upper()
-    posted = datetime.fromtimestamp(ts_d).strftime("%d-%m-%Y в %H:%M") if ts_d else "только что"
+
+    posted = format_msk_time(ts_d)
+
     details = []
     if brand_t:
         details.append(str(brand_t))
@@ -1115,11 +1164,13 @@ def format_vinted_message(item, domain, title, title_ru, price, curr, link, phot
         details.append(str(size))
     if cond:
         details.append(str(cond))
+
     category = html.escape(" / ".join(details) if details else "Все")
     title_safe = html.escape(str(title_ru or title))
     link_safe = html.escape(str(link), quote=True)
     photo_safe = html.escape(str(photo_url or link), quote=True)
     domain_safe = html.escape(f"https://{domain}", quote=True)
+
     return (
         f"⚭ <b>Страна:</b> {country}\n"
         f"□ <b>Категория:</b> {category}\n\n"
@@ -1127,10 +1178,15 @@ def format_vinted_message(item, domain, title, title_ru, price, curr, link, phot
         f"▣ <b>Цена:</b> {price:g} {html.escape(str(curr))}\n\n"
         f"◷ <b>Публикация:</b> {posted}\n\n"
         f"☮ <b>Продавец:</b> {seller_name}\n\n"
-        f"┌ <b>Объявления:</b> {items_count}\n"
-        f"├ <b>Продажи:</b> {positive_feedback}\n"
-        f"├ <b>Отзывы:</b> {feedback_count}\n"
-        f"└ <b>Страна:</b> {country_code or 'N/A'}\n\n"
+        f"┌ <b>Объявлений:</b> {items_count}
+"
+        f"├ <b>Продаж:</b> {positive_feedback}
+"
+        f"├ <b>Отзывов:</b> {feedback_count}
+"
+        f"└ <b>Страна:</b> {country_code or 'N/A'}
+
+"
         f"🔗 <a href='{link_safe}'>Ссылка на объявление</a>\n"
         f"🔗 <a href='{domain_safe}'>Ссылка на площадку</a>\n"
         f"🔗 <a href='{link_safe}'>Ссылка на чат</a>\n"
@@ -1152,7 +1208,7 @@ def format_mercari_message(item, name, name_ru, price, price_str, link, thumb):
         "□ <b>Категория:</b> Mercari\n\n"
         f"▣ <b>Название:</b> {title_safe}\n"
         f"▣ <b>Цена:</b> {price_safe}\n\n"
-        f"◷ <b>Публикация:</b> {datetime.now().strftime('%d-%m-%Y в %H:%M')}\n\n"
+        f"◷ <b>Публикация:</b> {datetime.now(MSK_TZ).strftime("%d-%m-%Y %H:%M МСК")}\n\n"
         f"☮ <b>Продавец:</b> {seller_name}\n\n"
         f"┌ <b>Продажи:</b> {seller_sales}\n"
         f"└ <b>Отзывы:</b> {seller_reviews}\n\n"
