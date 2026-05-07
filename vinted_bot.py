@@ -1201,6 +1201,64 @@ async def setup_bot_commands(app):
         BotCommand("start", "🤖 Главное меню"),
     ])
 
+def market_kb(market=None):
+    market = market or state.get("current_market") or "vinted"
+    run_text = "Остановить" if _market_running(market) else "Запустить"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(run_text, callback_data=f"toggle_{market}")],
+        [InlineKeyboardButton("Фильтры", callback_data=f"filters_{market}"),
+         InlineKeyboardButton(_market_title(market), callback_data=f"pick_{market}")],
+    ])
+
+def filters_text(market=None):
+    market = market or state.get("current_market") or "vinted"
+    if market == "mercari":
+        return (
+            "<b>Mercari.jp • Фильтры</b>\n\n"
+            "<b>Страна</b>\n"
+            "└ Япония\n\n"
+            "<b>Категории</b>\n"
+            "└ Все\n\n"
+            "<b>Цена</b>\n"
+            f"└ {state['mercari_min']:,}–{state['mercari_max']:,}¥\n\n"
+            "<b>Период публикации</b>\n"
+            "└ Новые сверху\n\n"
+            "<b>Банворды</b>\n"
+            f"└ {len(BAD_WORDS)}\n\n"
+            "<b>Фильтры продавца</b>\n"
+            "┌ Объявления: до 10\n"
+            "├ Продажи: 0\n"
+            "├ Покупки: 0\n"
+            "└ Отзывы: 0"
+        )
+    return (
+        "<b>Vinted • Фильтры</b>\n\n"
+        "<b>Страны</b>\n"
+        f"└ {', '.join(VINTED_REGIONS.keys())}\n\n"
+        "<b>Категории</b>\n"
+        "└ Одежда / обувь / аксессуары\n\n"
+        "<b>Цена</b>\n"
+        f"└ {state['vinted_min']}–{state['vinted_max']}€\n\n"
+        "<b>Период публикации</b>\n"
+        f"└ до {_age_label(state['vinted_max_age_hours'])}\n\n"
+        "<b>Банворды</b>\n"
+        f"└ {len(BAD_WORDS)}\n\n"
+        "<b>Фильтры продавца</b>\n"
+        "┌ Объявления: до 10\n"
+        "├ Продажи: 0\n"
+        "├ Покупки: 0\n"
+        "├ Отзывы: 0\n"
+        "└ Регистрация: от 01-01-2025"
+    )
+
+def filters_kb(market=None):
+    market = market or state.get("current_market") or "vinted"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Остановить" if _market_running(market) else "Запустить", callback_data=f"toggle_{market}")],
+        [InlineKeyboardButton("Фильтры", callback_data=f"filters_{market}"),
+         InlineKeyboardButton(_market_title(market), callback_data=f"pick_{market}")],
+    ])
+
 def main():
     global bot_app
     if not BOT_TOKEN:
