@@ -160,7 +160,7 @@ def fruits_market_price_krw(items, target_item, brand, keyword=None):
 def _normalize_fruits_item(item):
     item_id = str(item.get("id") or "")
     title = item.get("title") or "?"
-    images = item.get("resizedSmallImages") or []
+    images = item.get("images") or item.get("resizedImages") or item.get("resizedSmallImages") or []
     return {
         "id": item_id,
         "title": title,
@@ -251,7 +251,10 @@ async def _send_fruits_item(bot_app, image, msg):
     for chat_id in chat_ids:
         if image:
             try:
-                await bot_app.bot.send_photo(chat_id=chat_id, photo=image, caption=msg, parse_mode="HTML")
+                await bot_app.bot.send_document(chat_id=chat_id, photo=image, caption=msg, parse_mode="HTML",
+            filename="image.jpg",
+            disable_content_type_detection=True
+        )
                 continue
             except Exception as e:
                 log.warning("FruitsFamily send_photo failed for chat %s: %s", chat_id, e)
