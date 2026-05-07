@@ -147,43 +147,18 @@ def _best_mercari_image_url(url):
     return url
 
 
-def _median(values):
-    values = sorted(values)
-    if not values:
-        return None
-    mid = len(values) // 2
-    if len(values) % 2:
-        return values[mid]
-    return int((values[mid - 1] + values[mid]) / 2)
-
-
 def mercari_market_price_jpy(items, target_item, brand):
-    target_kind = deep_fashion_kind(target_item)
-    if not target_kind:
-        return None
-    target_id = target_item.get("id")
-    prices = []
-    for item in items or []:
-        if target_id and item.get("id") == target_id:
-            continue
-        try:
-            price = int(item.get("price", 0))
-        except (TypeError, ValueError):
-            continue
-        if price <= 0:
-            continue
-        if not mercari_matches_brand(item, brand):
-            continue
-        if deep_fashion_kind(item) != target_kind:
-            continue
-        prices.append(price)
-    if len(prices) < MERCARI_MIN_MARKET_SAMPLES:
-        return None
-    prices = sorted(prices)
-    if len(prices) >= 7:
-        cut = max(1, int(len(prices) * 0.1))
-        prices = prices[cut:-cut] or prices
-    return {"price": _median(prices), "count": len(prices)}
+    from market_price import calculate_market_price
+
+    return calculate_market_price(
+        items,
+        target_item,
+        price_getter=lambda item: item.get("price", 0),
+        id_getter=lambda item: item.get("id"),
+        item_filter=lambda item: mercari_matches_brand(item, brand),
+        kind_getter=deep_fashion_kind,
+        min_samples=MERCARI_MIN_MARKET_SAMPLES,
+    )
 
 
 def _mercari_item_id_from_url(url):
@@ -327,6 +302,7 @@ def mercari_loop(bot_app):
                 if not state["mercari_running"]:
                     break
                 items = loop.run_until_complete(fetch_mercari(query))
+                market_items = loop.run_until_complete(fetch_mercari(query, price_min=1, price_max=10_000_000, limit=80)) or items
                 for item in items or []:
                     iid = item.get("id")
                     name = item.get("name", "?")
