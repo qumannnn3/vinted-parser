@@ -118,6 +118,15 @@ def age_range_label(min_hours, max_hours):
         return f"до {_age_label(max_hours)}"
     return f"{_age_label(min_hours)}–{_age_label(max_hours)}"
 
+def _eur_label(value):
+    return f"{float(value):g}"
+
+def vinted_price_range_label():
+    return f"{_eur_label(state['vinted_min'])}–{_eur_label(state['vinted_max'])}€"
+
+def mercari_price_range_label():
+    return f"{int(state['mercari_min']):,}–{int(state['mercari_max']):,}¥"
+
 def parse_age_range(text):
     nums = [n.replace(",", ".") for n in re.findall(r"\d+(?:[.,]\d+)?", text or "")]
     if not nums:
@@ -131,6 +140,42 @@ def parse_age_range(text):
     if min_hours < 0 or max_hours <= 0 or min_hours >= max_hours:
         raise ValueError
     return min_hours, max_hours
+
+def _parse_price_number(raw):
+    s = re.sub(r"[^\d,.\s]", "", str(raw or "")).replace(" ", "")
+    if not s:
+        raise ValueError
+    if "," in s and "." in s:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif "," in s:
+        chunks = s.split(",")
+        if len(chunks) > 1 and len(chunks[0]) <= 3 and all(len(c) == 3 for c in chunks[1:]):
+            s = "".join(chunks)
+        else:
+            s = s.replace(",", ".")
+    elif "." in s:
+        chunks = s.split(".")
+        if len(chunks) > 1 and len(chunks[0]) <= 3 and all(len(c) == 3 for c in chunks[1:]):
+            s = "".join(chunks)
+    return float(s)
+
+def parse_price_range(text, *, is_int=False):
+    raw = str(text or "").strip()
+    parts = [p for p in re.split(r"\s*(?:-|–|—|до|to)\s*", raw, maxsplit=1, flags=re.IGNORECASE) if p.strip()]
+    if len(parts) < 2:
+        parts = re.findall(r"\d+(?:[.,]\d+)?", raw)
+    if len(parts) < 2:
+        raise ValueError
+    min_price = _parse_price_number(parts[0])
+    max_price = _parse_price_number(parts[1])
+    if min_price <= 0 or max_price <= 0 or min_price >= max_price:
+        raise ValueError
+    if is_int:
+        return int(min_price), int(max_price)
+    return min_price, max_price
 
 def publish_age_hours(ts):
     parsed = _try_parse_ts(ts)
@@ -1302,11 +1347,11 @@ def main_text():
         "└ Выбери площадку для мониторинга\n\n"
         f"🇯🇵 <b>Mercari.jp</b>\n"
         f"└ Статус: {'работает' if state['mercari_running'] else 'остановлен'}\n"
-        f"└ Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥\n"
+        f"└ Цена: {mercari_price_range_label()}\n"
         f"└ Публикация: {age_range_label(state['mercari_min_age_hours'], state['mercari_max_age_hours'])}\n\n"
         f"🌍 <b>Vinted</b>\n"
         f"└ Статус: {'работает' if state['vinted_running'] else 'остановлен'}\n"
-        f"└ Цена: {state['vinted_min']}–{state['vinted_max']}€\n"
+        f"└ Цена: {vinted_price_range_label()}\n"
         f"└ Публикация: {age_range_label(state['vinted_min_age_hours'], state['vinted_max_age_hours'])}"
     )
 
@@ -1327,13 +1372,13 @@ def market_text(market=None):
     if market == "mercari":
         area = "jp.mercari.com"
         filters = (
-            f"Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥ | "
+            f"Цена: {mercari_price_range_label()} | "
             f"Публикация: {age_range_label(state['mercari_min_age_hours'], state['mercari_max_age_hours'])}"
         )
     else:
         area = ".pl .lt .lv"
         filters = (
-            f"Цена: {state['vinted_min']}–{state['vinted_max']}€ | "
+            f"Цена: {vinted_price_range_label()} | "
             f"Публикация: {age_range_label(state['vinted_min_age_hours'], state['vinted_max_age_hours'])}"
         )
     return (
@@ -1370,16 +1415,9 @@ def filters_text(market=None):
             "▣ <b>Категории</b>\n"
             "└ Все\n\n"
             "▣ <b>Цена</b>\n"
-            f"└ {state['mercari_min']:,}–{state['mercari_max']:,}¥\n\n"
+            f"└ {mercari_price_range_label()}\n\n"
             "◷ <b>Период публикации</b>\n"
-            f"└ {age_range_label(state['mercari_min_age_hours'], state['mercari_max_age_hours'])}\n\n"
-            "⊘ <b>Банворды</b>\n"
-            f"└ {len(BAD_WORDS)}\n\n"
-            "☮ <b>Фильтры продавца</b>\n"
-            "┌ Объявления: до 10\n"
-            "├ Продажи: 0\n"
-            "├ Покупки: 0\n"
-            "└ Отзывы: 0"
+            f"└ {age_range_label(state['mercari_min_age_hours'], state['mercari_max_age_hours'])}"
         )
     return (
         "<b>Vinted • Фильтры</b>\n\n"
@@ -1388,28 +1426,16 @@ def filters_text(market=None):
         "▣ <b>Категории</b>\n"
         "└ Одежда / обувь / аксессуары\n\n"
         "▣ <b>Цена</b>\n"
-        f"└ {state['vinted_min']}–{state['vinted_max']}€\n\n"
+        f"└ {vinted_price_range_label()}\n\n"
         "◷ <b>Период публикации</b>\n"
-        f"└ {age_range_label(state['vinted_min_age_hours'], state['vinted_max_age_hours'])}\n\n"
-        "⊘ <b>Банворды</b>\n"
-        f"└ {len(BAD_WORDS)}\n\n"
-        "☮ <b>Фильтры продавца</b>\n"
-        "┌ Объявления: до 10\n"
-        "├ Продажи: 0\n"
-        "├ Покупки: 0\n"
-        "├ Отзывы: 0\n"
-        "└ Регистрация: от 01-01-2025"
+        f"└ {age_range_label(state['vinted_min_age_hours'], state['vinted_max_age_hours'])}"
     )
 
 def filters_kb(market=None):
     market = market or state.get("current_market") or "vinted"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🌐", callback_data=f"noop_{market}_countries"),
-         InlineKeyboardButton("▣", callback_data=f"noop_{market}_categories"),
-         InlineKeyboardButton("▣ Цена", callback_data=f"price_{market}"),
-         InlineKeyboardButton("◷ Публикации", callback_data=f"age_{market}"),
-         InlineKeyboardButton("⊘", callback_data=f"noop_{market}_banwords"),
-         InlineKeyboardButton("☮", callback_data=f"noop_{market}_seller")],
+        [InlineKeyboardButton("Цена", callback_data=f"price_{market}"),
+         InlineKeyboardButton("Время", callback_data=f"age_{market}")],
         [InlineKeyboardButton("⏹ Остановить" if _market_running(market) else "▶ Запустить", callback_data=f"toggle_{market}")],
         [InlineKeyboardButton("ⓘ Фильтры", callback_data=f"filters_{market}"),
          InlineKeyboardButton(f"ⓘ {_market_title(market)}", callback_data=f"pick_{market}")],
@@ -1497,25 +1523,25 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await edit(filters_text(market), filters_kb(market))
         return
 
-    if data in ("price_vinted", "vset_min"):
-        state["awaiting"] = "vinted_min"
+    if data in ("price_vinted", "vset_min", "vset_max"):
+        state["awaiting"] = "vinted_price_range"
         state["current_market"] = "vinted"
-        await edit(f"Введи минимальную цену Vinted (€)\nСейчас: <b>{state['vinted_min']}€</b>\n\nНапример: <code>10</code>", filters_kb("vinted"))
+        await edit(
+            "Введи диапазон цены Vinted (€)\n"
+            f"Сейчас: <b>{vinted_price_range_label()}</b>\n\n"
+            "Например: <code>10-500</code>",
+            filters_kb("vinted")
+        )
         return
-    if data == "vset_max":
-        state["awaiting"] = "vinted_max"
-        state["current_market"] = "vinted"
-        await edit(f"Введи максимальную цену Vinted (€)\nСейчас: <b>{state['vinted_max']}€</b>\n\nНапример: <code>500</code>", filters_kb("vinted"))
-        return
-    if data == "price_mercari":
-        state["awaiting"] = "mercari_min"
+    if data in ("price_mercari", "mset_min", "mset_max"):
+        state["awaiting"] = "mercari_price_range"
         state["current_market"] = "mercari"
-        await edit(f"Введи минимальную цену Mercari (¥)\nСейчас: <b>{state['mercari_min']:,}¥</b>\n\nНапример: <code>1000</code>", filters_kb("mercari"))
-        return
-    if data == "mset_max":
-        state["awaiting"] = "mercari_max"
-        state["current_market"] = "mercari"
-        await edit(f"Введи максимальную цену Mercari (¥)\nСейчас: <b>{state['mercari_max']:,}¥</b>\n\nНапример: <code>50000</code>", filters_kb("mercari"))
+        await edit(
+            "Введи диапазон цены Mercari (¥)\n"
+            f"Сейчас: <b>{mercari_price_range_label()}</b>\n\n"
+            "Например: <code>1000-50000</code>",
+            filters_kb("mercari")
+        )
         return
     if data in ("age_vinted", "vset_age"):
         state["awaiting"] = "vinted_age_range"
@@ -1548,11 +1574,11 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "<b>Статус</b>\n\n"
             f"<b>Vinted</b> {'🟢' if state['vinted_running'] else '🔴'}\n"
             f"└ Циклов: {state['vinted_stats']['cycles']} | Находок: {state['vinted_stats']['found']}\n"
-            f"└ Цена: {state['vinted_min']}–{state['vinted_max']}€ | {age_range_label(state['vinted_min_age_hours'], state['vinted_max_age_hours'])}\n"
+            f"└ Цена: {vinted_price_range_label()} | {age_range_label(state['vinted_min_age_hours'], state['vinted_max_age_hours'])}\n"
             f"└ Поле времени: <code>{tf}</code>\n\n"
             f"<b>Mercari.jp</b> {'🟢' if state['mercari_running'] else '🔴'}\n"
             f"└ Циклов: {state['mercari_stats']['cycles']} | Находок: {state['mercari_stats']['found']}\n"
-            f"└ Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥ | {age_range_label(state['mercari_min_age_hours'], state['mercari_max_age_hours'])}\n\n"
+            f"└ Цена: {mercari_price_range_label()} | {age_range_label(state['mercari_min_age_hours'], state['mercari_max_age_hours'])}\n\n"
             f"Брендов: {len(state['active_brands'])}/{len(ALL_BRANDS)}"
         )
         await edit(text, main_kb())
@@ -1619,6 +1645,25 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         except ValueError:
             await update.message.reply_text("Нужно число больше 0", reply_markup=filters_kb(state.get("current_market")))
+    elif aw in ("vinted_price_range", "mercari_price_range"):
+        market = "mercari" if aw == "mercari_price_range" else "vinted"
+        try:
+            min_price, max_price = parse_price_range(text, is_int=(market == "mercari"))
+            state[f"{market}_min"] = min_price
+            state[f"{market}_max"] = max_price
+            state["awaiting"] = None
+            state["current_market"] = market
+            label = mercari_price_range_label() if market == "mercari" else vinted_price_range_label()
+            await update.message.reply_text(
+                f"✅ Диапазон цены: <b>{label}</b>\n\n{filters_text(market)}",
+                parse_mode="HTML", reply_markup=filters_kb(market)
+            )
+        except ValueError:
+            example = "1000-50000" if market == "mercari" else "10-500"
+            await update.message.reply_text(
+                f"Нужен диапазон цены. Например: {example}",
+                reply_markup=filters_kb(market)
+            )
     elif aw in ("vinted_age", "vinted_age_range", "mercari_age_range"):
         market = "mercari" if aw == "mercari_age_range" else "vinted"
         try:
