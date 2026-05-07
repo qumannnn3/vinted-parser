@@ -10,7 +10,10 @@ from fruits_platform import fruits_loop
 try:
     from goofish_platform import gofish_loop
 except ModuleNotFoundError:
-    gofish_loop = None
+    try:
+        from gofish_platform import gofish_loop
+    except ModuleNotFoundError:
+        gofish_loop = None
 from mercari_platform import mercari_loop
 from shared import (
     ALL_BRANDS,
@@ -377,7 +380,7 @@ def _start_market_thread(market):
         threading.Thread(target=fruits_loop, args=(bot_app,), daemon=True).start()
     elif market == "gofish":
         if gofish_loop is None:
-            log.error("Gofish не запущен: файл gofish_platform.py не найден в /app")
+            log.error("Gofish не запущен: нет файла goofish_platform.py или gofish_platform.py в /app")
             return
         threading.Thread(target=gofish_loop, args=(bot_app,), daemon=True).start()
 
