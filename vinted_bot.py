@@ -77,7 +77,7 @@ def _keywords_label(market):
 
 def main_text():
     return (
-        "<b>Parser #1</b>\n"
+        "<b>huntparser</b>\n"
         "└ Выбери площадку для мониторинга\n\n"
         f"🇯🇵 <b>Mercari.jp</b>\n"
         f"└ Статус: {'работает' if state['mercari_running'] else 'остановлен'}\n"
@@ -117,11 +117,32 @@ def quick_kb():
     return ReplyKeyboardMarkup(
         [
             ["Меню", "Статус"],
+            ["⏹ Остановить"],
             ["Mercari.jp", "FruitsFamily", "Vinted"],
         ],
         resize_keyboard=True,
         is_persistent=True,
     )
+
+
+def _running_markets():
+    return [
+        market for market in ("mercari", "fruits", "vinted")
+        if state.get(f"{market}_running")
+    ]
+
+
+def _stop_all_markets():
+    stopped = _running_markets()
+    for market in ("mercari", "fruits", "vinted"):
+        state[f"{market}_running"] = False
+    return stopped
+
+
+def _stopped_markets_label(markets):
+    if not markets:
+        return "парсинг уже остановлен"
+    return ", ".join(_market_title(market) for market in markets)
 
 
 def market_text(market=None):
@@ -403,6 +424,19 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(status_text(), reply_markup=main_kb(), parse_mode="HTML")
 
 
+async def cmd_stop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await _ensure_message_access(update):
+        return
+    register_chat_id(update.effective_chat.id)
+    stopped = _stop_all_markets()
+    await update.message.reply_text(
+        f"⏹ Остановлено: <b>{_stopped_markets_label(stopped)}</b>",
+        reply_markup=quick_kb(),
+        parse_mode="HTML",
+    )
+    await update.message.reply_text(main_text(), reply_markup=main_kb(), parse_mode="HTML")
+
+
 async def cmd_access(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if is_authorized(_update_user_id(update)):
         await _send_main_menu(update)
@@ -630,6 +664,16 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(status_text(), reply_markup=main_kb(), parse_mode="HTML")
         return
 
+    if button_text in ("⏹ остановить", "остановить", "стоп", "stop", "/stop"):
+        state["awaiting"] = None
+        stopped = _stop_all_markets()
+        await update.message.reply_text(
+            f"⏹ Остановлено: <b>{_stopped_markets_label(stopped)}</b>\n\n{main_text()}",
+            reply_markup=main_kb(),
+            parse_mode="HTML",
+        )
+        return
+
     if button_text in ("mercari", "mercari.jp", "меркари"):
         state["awaiting"] = None
         state["current_market"] = "mercari"
@@ -721,6 +765,7 @@ async def setup_bot_commands(app):
         BotCommand("start", "Запустить бота"),
         BotCommand("menu", "Главное меню"),
         BotCommand("status", "Статус мониторинга"),
+        BotCommand("stop", "Остановить парсинг"),
         BotCommand("access", "Ввести код доступа"),
     ]
     await app.bot.set_my_commands(commands)
@@ -757,6 +802,7 @@ def main():
     )
     bot_app.add_handler(CommandHandler(["start", "menu"], cmd_start))
     bot_app.add_handler(CommandHandler("status", cmd_status))
+    bot_app.add_handler(CommandHandler("stop", cmd_stop))
     bot_app.add_handler(CommandHandler("access", cmd_access))
     bot_app.add_handler(CallbackQueryHandler(on_button))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
