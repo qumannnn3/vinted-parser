@@ -14,9 +14,11 @@ from shared import (
     PROXY_URL,
     VINTED_REGIONS,
     age_range_label,
+    keywords_label,
     log,
     mercari_price_range_label,
     parse_age_range,
+    parse_keywords,
     parse_price_range,
     state,
     vinted_price_range_label,
@@ -56,6 +58,10 @@ def _age_label(market):
     )
 
 
+def _keywords_label(market):
+    return keywords_label(market)
+
+
 def main_text():
     return (
         "<b>Parser #1</b>\n"
@@ -63,11 +69,13 @@ def main_text():
         f"🇯🇵 <b>Mercari.jp</b>\n"
         f"└ Статус: {'работает' if state['mercari_running'] else 'остановлен'}\n"
         f"└ Цена: {mercari_price_range_label()}\n"
-        f"└ Публикация: {_age_label('mercari')}\n\n"
+        f"└ Публикация: {_age_label('mercari')}\n"
+        f"└ Ключи: {_keywords_label('mercari')}\n\n"
         f"🌍 <b>Vinted</b>\n"
         f"└ Статус: {'работает' if state['vinted_running'] else 'остановлен'}\n"
         f"└ Цена: {vinted_price_range_label()}\n"
-        f"└ Публикация: {_age_label('vinted')}"
+        f"└ Публикация: {_age_label('vinted')}\n"
+        f"└ Ключи: {_keywords_label('vinted')}"
     )
 
 
@@ -113,6 +121,7 @@ def market_text(market=None):
         f"└ {last}\n\n"
         f"⌁ <b>Фильтры</b>\n"
         f"└ Цена: {_price_label(market)} | Публикация: {_age_label(market)}\n"
+        f"└ Ключи: {_keywords_label(market)}\n"
         f"└ Найдено: {stats['found']} | Циклов: {stats['cycles']}"
     )
 
@@ -137,7 +146,9 @@ def filters_text(market=None):
         "<b>Цена</b>\n"
         f"└ {_price_label(market)}\n\n"
         "<b>Время публикации</b>\n"
-        f"└ {_age_label(market)}"
+        f"└ {_age_label(market)}\n\n"
+        "<b>Ключевые слова</b>\n"
+        f"└ {_keywords_label(market)}"
     )
 
 
@@ -147,6 +158,7 @@ def filters_kb(market=None):
         [
             InlineKeyboardButton("Цена", callback_data=f"price_{market}"),
             InlineKeyboardButton("Время", callback_data=f"age_{market}"),
+            InlineKeyboardButton("Ключи", callback_data=f"keywords_{market}"),
         ],
         [InlineKeyboardButton("⏹ Остановить" if _market_running(market) else "▶ Запустить", callback_data=f"toggle_{market}")],
         [
@@ -164,10 +176,12 @@ def status_text():
         f"<b>Vinted</b> {'🟢' if state['vinted_running'] else '🔴'}\n"
         f"└ Циклов: {state['vinted_stats']['cycles']} | Находок: {state['vinted_stats']['found']}\n"
         f"└ Цена: {vinted_price_range_label()} | {_age_label('vinted')}\n"
+        f"└ Ключи: {_keywords_label('vinted')}\n"
         f"└ Поле времени: <code>{tf}</code>\n\n"
         f"<b>Mercari.jp</b> {'🟢' if state['mercari_running'] else '🔴'}\n"
         f"└ Циклов: {state['mercari_stats']['cycles']} | Находок: {state['mercari_stats']['found']}\n"
-        f"└ Цена: {mercari_price_range_label()} | {_age_label('mercari')}\n\n"
+        f"└ Цена: {mercari_price_range_label()} | {_age_label('mercari')}\n"
+        f"└ Ключи: {_keywords_label('mercari')}\n\n"
         f"Брендов: {len(state['active_brands'])}/{len(ALL_BRANDS)}"
     )
 
@@ -304,6 +318,19 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if data in ("keywords_vinted", "keywords_mercari"):
+        market = data.split("_", 1)[1]
+        state["awaiting"] = f"{market}_keywords"
+        state["current_market"] = market
+        await edit(
+            f"Введи ключевые слова для {_market_title(market)} через запятую\n"
+            f"Сейчас: <b>{_keywords_label(market)}</b>\n\n"
+            "Например: <code>hoodie, jacket, bag</code>\n"
+            "Чтобы очистить: <code>-</code>",
+            filters_kb(market),
+        )
+        return
+
     if data == "status":
         await edit(status_text(), main_kb())
         return
@@ -374,6 +401,19 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     text = raw_text.replace(",", ".")
+
+    if aw in ("vinted_keywords", "mercari_keywords"):
+        market = "mercari" if aw == "mercari_keywords" else "vinted"
+        keywords = parse_keywords(raw_text)
+        state[f"{market}_keywords"] = keywords
+        state["awaiting"] = None
+        state["current_market"] = market
+        await update.message.reply_text(
+            f"✅ Ключевые слова: <b>{_keywords_label(market)}</b>\n\n{filters_text(market)}",
+            parse_mode="HTML",
+            reply_markup=filters_kb(market),
+        )
+        return
 
     if aw in ("vinted_price_range", "mercari_price_range"):
         market = "mercari" if aw == "mercari_price_range" else "vinted"
