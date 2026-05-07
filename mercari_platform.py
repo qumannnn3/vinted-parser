@@ -244,7 +244,7 @@ def _normalize_mercari_item(item):
     }
 
 
-async def fetch_mercari(query):
+async def fetch_mercari(query, price_min=None, price_max=None, limit=30):
     global mercari_api
     try:
         from mercapi import Mercapi
@@ -259,10 +259,10 @@ async def fetch_mercari(query):
             sort_by=SearchRequestData.SortBy.SORT_CREATED_TIME,
             sort_order=SearchRequestData.SortOrder.ORDER_DESC,
             status=[SearchRequestData.Status.STATUS_ON_SALE],
-            price_min=state["mercari_min"],
-            price_max=state["mercari_max"],
+            price_min=state["mercari_min"] if price_min is None else price_min,
+            price_max=state["mercari_max"] if price_max is None else price_max,
         )
-        items = [_normalize_mercari_item(item) for item in getattr(results, "items", [])[:30]]
+        items = [_normalize_mercari_item(item) for item in getattr(results, "items", [])[:limit]]
         if items:
             log.info("Mercari '%s' -> %s товаров", query, len(items))
         return items
@@ -273,7 +273,8 @@ async def fetch_mercari(query):
 
 def format_mercari_message(item, name, name_ru, price_str, link):
     seller = item.get("seller") if isinstance(item, dict) else None
-    seller_name = html.escape(str((seller or {}).get("name") or (seller or {}).get("id") or "не указан"))
+    raw_seller = (seller or {}).get("name") or (seller or {}).get("id")
+    seller_line = f"<b>Продавец:</b> {html.escape(str(raw_seller))}\n" if raw_seller else ""
     title_safe = html.escape(str(name_ru or name))
     link_safe = html.escape(str(link), quote=True)
     posted = format_msk_timestamp(item.get("created_at")) if isinstance(item, dict) else "не указано"
@@ -282,7 +283,7 @@ def format_mercari_message(item, name, name_ru, price_str, link):
         f"<b>{title_safe}</b>\n\n"
         f"<b>Цена:</b> {price_str}\n"
         f"<b>Публикация:</b> {posted}\n"
-        f"<b>Продавец:</b> {seller_name}\n\n"
+        f"{seller_line}\n"
         f"<a href='{link_safe}'>Открыть объявление</a>"
     )
 
@@ -378,7 +379,7 @@ def mercari_loop(bot_app):
                     name_ru = translate_to_ru(name)
                     rate = get_jpy_to_eur()
                     eur = round(price * rate, 2) if rate else None
-                    market = mercari_market_price_jpy(items, item, brand)
+                    market = mercari_market_price_jpy(market_items, item, brand)
                     if not market:
                         log.info("SKIP Mercari no market sample: %s", name[:60])
                         continue
