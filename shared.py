@@ -165,6 +165,8 @@ state = {
     "awaiting": None,
     "current_market": None,
     "brands_page": 0,
+    "brands_query": "",
+    "brands_active_only": False,
     "active_brands": set(ALL_BRANDS),
     "vinted_running": False,
     "vinted_min": 10,
