@@ -1,6 +1,6 @@
 import statistics
 from dataclasses import dataclass
-from typing import Callable, Iterable, Optional, Sequence, Any
+from typing import Any, Callable, Iterable, Optional, Sequence
 
 
 MIN_REQUIRED_PRICES = 3
@@ -42,34 +42,58 @@ def _to_int_price(value) -> Optional[int]:
     return None
 
 
-def _get_id(value: Any, id_getter: Optional[Callable[[Any], Any]] = None):
-    if id_getter:
+def _default_price_getter(item: Any):
+    if isinstance(item, dict):
+        return (
+            item.get('price')
+            or item.get('price_jpy')
+            or item.get('price_krw')
+            or item.get('price_eur')
+            or item.get('converted_price')
+            or item.get('amount')
+        )
+
+    return item
+
+
+def _default_id_getter(item: Any):
+    if isinstance(item, dict):
+        return (
+            item.get('id')
+            or item.get('item_id')
+            or item.get('product_id')
+            or item.get('url')
+            or item.get('link')
+        )
+
+    return getattr(item, 'id', None) or getattr(item, 'item_id', None)
+
+
+def _get_value(item: Any, getter: Optional[Callable[[Any], Any]], fallback: Callable[[Any], Any]):
+    if getter:
         try:
-            return id_getter(value)
+            return getter(item)
         except Exception:
             return None
-
-    if isinstance(value, dict):
-        return value.get('id') or value.get('item_id') or value.get('product_id') or value.get('url')
-
-    return getattr(value, 'id', None) or getattr(value, 'item_id', None)
+    return fallback(item)
 
 
 def normalize_prices(
-    prices: Iterable,
+    items: Iterable,
     price_getter: Optional[Callable[[Any], Any]] = None,
     id_getter: Optional[Callable[[Any], Any]] = None,
     exclude_id: Any = None,
 ) -> list[int]:
     normalized: list[int] = []
 
-    for item in prices or []:
-        item_id = _get_id(item, id_getter=id_getter)
+    for item in items or []:
+        item_id = _get_value(item, id_getter, _default_id_getter)
         if exclude_id is not None and item_id is not None and str(item_id) == str(exclude_id):
             continue
 
-        raw_price = price_getter(item) if price_getter else item
+        raw_price = _get_value(item, price_getter, _default_price_getter)
         value = _to_int_price(raw_price)
+
         if value is not None:
             normalized.append(value)
 
@@ -94,14 +118,48 @@ def remove_outliers(prices: Sequence[int]) -> list[int]:
     return [p for p in prices if lower <= p <= upper]
 
 
+def _extract_legacy_args(args: tuple[Any, ...], kwargs: dict[str, Any]):
+    """
+    Поддержка старых вызовов из platform-файлов, например:
+    calculate_market_price(market_items, item, brand, price_getter=..., id_getter=...)
+    где вторым аргументом может прилетать current item dict, а не min_required.
+    """
+    min_required = kwargs.pop('min_required', MIN_REQUIRED_PRICES)
+    exclude_id = kwargs.pop('exclude_id', None)
+
+    if args:
+        first = args[0]
+
+        if isinstance(first, int):
+            min_required = first
+        elif isinstance(first, dict):
+            exclude_id = (
+                exclude_id
+                or first.get('id')
+                or first.get('item_id')
+                or first.get('product_id')
+                or first.get('url')
+                or first.get('link')
+            )
+        else:
+            # brand/keyword/other legacy positional args игнорируем
+            pass
+
+    return min_required, exclude_id
+
+
 def calculate_market_price(
     prices: Iterable,
-    min_required: int = MIN_REQUIRED_PRICES,
+    *args,
     price_getter: Optional[Callable[[Any], Any]] = None,
     id_getter: Optional[Callable[[Any], Any]] = None,
-    exclude_id: Any = None,
     **kwargs,
 ) -> Optional[int]:
+    min_required, exclude_id = _extract_legacy_args(args, kwargs)
+
+    if not isinstance(min_required, int):
+        min_required = MIN_REQUIRED_PRICES
+
     normalized = normalize_prices(
         prices,
         price_getter=price_getter,
@@ -136,17 +194,24 @@ def calculate_discount(price: int, market_price: int) -> int:
 def build_market_result(
     current_price: int,
     comparable_prices: Iterable,
+    *args,
     price_getter: Optional[Callable[[Any], Any]] = None,
     id_getter: Optional[Callable[[Any], Any]] = None,
-    exclude_id: Any = None,
+    **kwargs,
 ) -> Optional[MarketPriceResult]:
+    min_required, exclude_id = _extract_legacy_args(args, kwargs)
+
+    if not isinstance(min_required, int):
+        min_required = MIN_REQUIRED_PRICES
+
     prices = normalize_prices(
         comparable_prices,
         price_getter=price_getter,
         id_getter=id_getter,
         exclude_id=exclude_id,
     )
-    market_price = calculate_market_price(prices)
+
+    market_price = calculate_market_price(prices, min_required)
 
     if not market_price:
         return None
@@ -168,22 +233,43 @@ def is_profitable(
     return calculate_discount(current_price, market_price) >= min_discount_percent
 
 
-def market_line_jpy(current_price: int, comparable_prices: Iterable, price_getter=None, id_getter=None, exclude_id=None) -> str:
-    result = build_market_result(current_price, comparable_prices, price_getter=price_getter, id_getter=id_getter, exclude_id=exclude_id)
+def market_line_jpy(current_price: int, comparable_prices: Iterable, *args, price_getter=None, id_getter=None, **kwargs) -> str:
+    result = build_market_result(
+        current_price,
+        comparable_prices,
+        *args,
+        price_getter=price_getter,
+        id_getter=id_getter,
+        **kwargs,
+    )
     if not result:
         return ''
     return f'Рынок: ~¥{result.market_price:,}, ниже на {result.discount_percent}%'
 
 
-def market_line_krw(current_price: int, comparable_prices: Iterable, price_getter=None, id_getter=None, exclude_id=None) -> str:
-    result = build_market_result(current_price, comparable_prices, price_getter=price_getter, id_getter=id_getter, exclude_id=exclude_id)
+def market_line_krw(current_price: int, comparable_prices: Iterable, *args, price_getter=None, id_getter=None, **kwargs) -> str:
+    result = build_market_result(
+        current_price,
+        comparable_prices,
+        *args,
+        price_getter=price_getter,
+        id_getter=id_getter,
+        **kwargs,
+    )
     if not result:
         return ''
     return f'Рынок: ~₩{result.market_price:,}, ниже на {result.discount_percent}%'
 
 
-def market_line_eur(current_price: int, comparable_prices: Iterable, price_getter=None, id_getter=None, exclude_id=None) -> str:
-    result = build_market_result(current_price, comparable_prices, price_getter=price_getter, id_getter=id_getter, exclude_id=exclude_id)
+def market_line_eur(current_price: int, comparable_prices: Iterable, *args, price_getter=None, id_getter=None, **kwargs) -> str:
+    result = build_market_result(
+        current_price,
+        comparable_prices,
+        *args,
+        price_getter=price_getter,
+        id_getter=id_getter,
+        **kwargs,
+    )
     if not result:
         return ''
     return f'Рынок: ~{result.market_price} EUR, ниже на {result.discount_percent}%'
