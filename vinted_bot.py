@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import logging, time, threading, os, random, requests, json as _json, gzip, re, html
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
@@ -145,10 +145,17 @@ vinted_sessions: dict = {}
 mercari_api = None
 
 
-MSK_TZ = ZoneInfo("Europe/Moscow")
+MSK_TZ = pytz.timezone("Europe/Moscow")
 
 def format_msk_time(ts):
     if not ts:
+        return "только что"
+
+    try:
+        dt = datetime.fromtimestamp(ts)
+        dt = MSK_TZ.localize(dt)
+        return dt.strftime("%d-%m-%Y %H:%M МСК")
+    except Exception:
         return "только что"
     try:
         return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(MSK_TZ).strftime("%d-%m-%Y %H:%M МСК")
@@ -422,7 +429,7 @@ def vinted_loop():
                             or p.get("image", {}).get("url")
                             or p.get("url")
                             or p.get("no_watermark_url")
-                            or p.get("dominant_color")
+                            
                             or p.get("thumb_url", "")
                         )
 
