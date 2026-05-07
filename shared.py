@@ -83,6 +83,7 @@ state = {
     "vinted_max": 500,
     "vinted_min_age_hours": 0,
     "vinted_max_age_hours": MAX_AGE_HOURS,
+    "vinted_keywords": [],
     "vinted_interval": 300,
     "vinted_seen": set(),
     "vinted_stats": {"found": 0, "cycles": 0},
@@ -93,6 +94,7 @@ state = {
     "mercari_max": 50000,
     "mercari_min_age_hours": 0,
     "mercari_max_age_hours": MAX_AGE_HOURS,
+    "mercari_keywords": [],
     "mercari_interval": 300,
     "mercari_seen": set(),
     "mercari_stats": {"found": 0, "cycles": 0},
@@ -236,6 +238,40 @@ def mercari_price_range_label():
     return f"{int(state['mercari_min']):,}–{int(state['mercari_max']):,}¥"
 
 
+def parse_keywords(text):
+    raw = str(text or "").strip()
+    if raw.lower() in ("", "-", "нет", "none", "clear", "off", "выкл"):
+        return []
+    parts = re.split(r"[,;\n]+", raw)
+    result = []
+    seen = set()
+    for part in parts:
+        keyword = re.sub(r"\s+", " ", part).strip()
+        if not keyword:
+            continue
+        key = keyword.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(keyword)
+    return result[:20]
+
+
+def keywords_label(market):
+    keywords = state.get(f"{market}_keywords", [])
+    if not keywords:
+        return "только бренд"
+    text = ", ".join(keywords)
+    return text if len(text) <= 90 else text[:87] + "..."
+
+
+def market_search_queries(brand, market):
+    keywords = state.get(f"{market}_keywords", [])
+    if not keywords:
+        return [(brand, "")]
+    return [(f"{brand} {keyword}", keyword) for keyword in keywords]
+
+
 def parse_age_range(text):
     nums = [n.replace(",", ".") for n in re.findall(r"\d+(?:[.,]\d+)?", text or "")]
     if not nums:
@@ -344,3 +380,9 @@ def _contains_term(text, term):
 
 def _has_any_term(text, terms):
     return any(_contains_term(text, term) for term in terms)
+
+
+def keyword_matches_text(text, keyword):
+    if not keyword:
+        return True
+    return _contains_term(str(text or "").lower(), keyword)
