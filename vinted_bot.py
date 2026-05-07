@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import logging, time, threading, os, random, requests, json as _json, gzip, re
+import logging, time, threading, os, random, requests, json as _json, gzip, re, html
 from datetime import datetime, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
@@ -394,22 +394,90 @@ def _obj_get(obj, *names, default=None):
             return getattr(obj, name)
     return default
 
+MERCARI_ALLOWED_WORDS = [
+    "shirt", "t-shirt", "tee", "hoodie", "sweat", "sweater", "jacket", "coat",
+    "pants", "jeans", "denim", "trousers", "shorts", "skirt", "dress", "knit",
+    "cardigan", "vest", "blouson", "cargo", "sneaker", "sneakers", "shoes",
+    "boots", "loafer", "sandals", "cap", "hat", "beanie", "bag", "backpack",
+    "wallet", "belt", "scarf", "gloves", "sunglasses", "wear", "clothes",
+    "シャツ", "tシャツ", "パーカー", "スウェット", "ジャケット", "コート",
+    "パンツ", "デニム", "ジーンズ", "スカート", "ワンピース", "ニット",
+    "カーディガン", "セーター", "ベスト", "ブルゾン", "スニーカー",
+    "シューズ", "靴", "ブーツ", "サンダル", "ローファー", "帽子", "キャップ",
+    "ハット", "ニット帽", "バッグ", "リュック", "財布", "ベルト", "マフラー",
+    "手袋", "サングラス", "服", "衣",
+]
+
+MERCARI_BLOCKED_WORDS = [
+    "watch", "watches", "swatch", "clock", "perfume", "fragrance", "toy",
+    "figure", "doll", "book", "magazine", "cd", "dvd", "blu-ray", "game",
+    "phone", "iphone", "android", "camera", "charger", "case", "poster",
+    "sticker", "card", "keychain", "時計", "腕時計", "置時計", "香水", "おもちゃ",
+    "フィギュア", "ぬいぐるみ", "本", "雑誌", "ゲーム", "スマホ", "携帯",
+    "カメラ", "充電器", "ケース", "ポスター", "ステッカー", "カード", "キーホルダー",
+]
+
+def _mercari_text_blob(item):
+    parts = []
+    for key in ("name", "title", "description", "category", "category_name", "brand", "brand_name", "status"):
+        val = item.get(key) if isinstance(item, dict) else _obj_get(item, key, default="")
+        if isinstance(val, dict):
+            parts.extend(str(x) for x in val.values() if x)
+        elif isinstance(val, list):
+            parts.extend(str(x) for x in val if x)
+        elif val:
+            parts.append(str(val))
+    return " ".join(parts).lower()
+
+def is_relevant_mercari_item(item):
+    text = _mercari_text_blob(item)
+    if any(word in text for word in MERCARI_BLOCKED_WORDS):
+        return False
+    return any(word in text for word in MERCARI_ALLOWED_WORDS)
+
+def _mercari_item_id_from_url(url):
+    if not url:
+        return ""
+    m = re.search(r"/item/([^/?#]+)", str(url))
+    return m.group(1) if m else ""
+
+def _mercari_item_url(item_id, url):
+    if url:
+        url = str(url)
+        if url.startswith("http://") or url.startswith("https://"):
+            return url
+        if url.startswith("/"):
+            return f"https://jp.mercari.com{url}"
+    return f"https://jp.mercari.com/item/{item_id}" if item_id else ""
+
 def _normalize_mercari_item(item):
-    item_id = _obj_get(item, "id", "item_id", "productCode", default="")
+    url = _obj_get(item, "productURL", "product_url", "url", "item_url", "webURL", "web_url", default="")
+    item_id = _obj_get(
+        item,
+        "id_", "id", "item_id", "itemId", "item_code", "itemCode", "code",
+        "productCode", "product_code", "merItemId", default="",
+    ) or _mercari_item_id_from_url(url)
     name = _obj_get(item, "name", "productName", "title", default="?")
     price = _obj_get(item, "price", default=0)
     status = _obj_get(item, "status", "item_status", "itemStatus", default="")
+    brand = _obj_get(item, "brand", "brand_name", "brandName", default="")
+    category = _obj_get(item, "category", "category_name", "categoryName", "category_id", "categoryId", default="")
+    description = _obj_get(item, "description", "item_description", default="")
     thumbnails = _obj_get(item, "thumbnails", "item_images", "images", default=[]) or []
     thumb = _obj_get(item, "imageURL", "image_url", "thumbnail", default="")
     if not thumb and thumbnails:
         first = thumbnails[0]
         thumb = first if isinstance(first, str) else _obj_get(first, "url", "image_url", "src", default="")
-    url = _obj_get(item, "productURL", "url", default="")
+    url = _mercari_item_url(item_id, url)
     return {
-        "id": item_id,
+        "id": str(item_id or ""),
         "name": name,
         "price": price,
         "status": status,
+        "brand": brand,
+        "category": category,
+        "category_id": _obj_get(item, "category_id", "categoryId", default=""),
+        "description": description,
         "url": url,
         "thumbnails": [{"url": thumb}] if thumb else [],
     }
@@ -509,18 +577,31 @@ def mercari_loop():
             items = loop.run_until_complete(fetch_mercari(brand))
             for item in (items or []):
                 iid = item.get("id")
+                if not iid:
+                    log.info(f"SKIP Mercari no item id: {item.get('name', '?')[:60]}")
+                    continue
                 if iid in state["mercari_seen"]: continue
 
                 name  = item.get("name", "?")
                 price = item.get("price", 0)
                 try: price = int(price)
-                except (ValueError, TypeError): continue
-                if not (state["mercari_min"] <= price <= state["mercari_max"]): continue
+                except (ValueError, TypeError):
+                    log.info(f"SKIP Mercari bad price: {name[:60]} price={price!r}")
+                    continue
+                if not (state["mercari_min"] <= price <= state["mercari_max"]):
+                    log.info(f"SKIP Mercari price {price}: {name[:60]}")
+                    continue
+                if not is_relevant_mercari_item(item):
+                    log.info(f"SKIP Mercari category: {name[:60]}")
+                    continue
 
                 thumbs    = item.get("thumbnails") or item.get("item_images") or []
                 thumb     = (thumbs[0].get("url") or thumbs[0].get("image_url", "")) if thumbs else ""
                 iid2      = item.get("id", "")
                 link      = item.get("url") or f"https://jp.mercari.com/item/{iid2}"
+                if not link or link.rstrip("/").endswith("/item"):
+                    log.info(f"SKIP Mercari bad link id={iid2!r}: {name[:60]}")
+                    continue
                 name_ru   = translate_to_ru(name)
                 rate      = get_jpy_to_eur()
                 eur       = round(price * rate, 2) if rate else None
@@ -551,20 +632,27 @@ def mercari_loop():
                                     caption=msg, parse_mode="HTML",
                                 )
                             )
-                        except Exception:
+                        except Exception as e:
+                            log.warning(f"Mercari send_photo failed: {e}")
+                            try:
+                                loop.run_until_complete(
+                                    bot_app.bot.send_message(
+                                        chat_id=state["chat_id"], text=msg,
+                                        parse_mode="HTML", disable_web_page_preview=False,
+                                    )
+                                )
+                            except Exception as e2:
+                                log.warning(f"Mercari send_message failed: {e2}")
+                    else:
+                        try:
                             loop.run_until_complete(
                                 bot_app.bot.send_message(
                                     chat_id=state["chat_id"], text=msg,
                                     parse_mode="HTML", disable_web_page_preview=False,
                                 )
                             )
-                    else:
-                        loop.run_until_complete(
-                            bot_app.bot.send_message(
-                                chat_id=state["chat_id"], text=msg,
-                                parse_mode="HTML", disable_web_page_preview=False,
-                            )
-                        )
+                        except Exception as e:
+                            log.warning(f"Mercari send_message failed: {e}")
 
             time.sleep(random.uniform(8, 15))
 
@@ -808,21 +896,25 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 def format_vinted_message(item, domain, title, title_ru, price, curr, link, photo_url, ts_d, brand_t, size, cond):
     country = domain.rsplit(".", 1)[-1].upper()
     seller = item.get("user", {}) or {}
-    seller_name = seller.get("login") or seller.get("username") or "не указан"
+    seller_name = html.escape(str(seller.get("login") or seller.get("username") or "не указан"))
     posted = datetime.fromtimestamp(ts_d).strftime("%d-%m-%Y в %H:%M") if ts_d else "только что"
     details = []
     if brand_t:
-        details.append(brand_t)
+        details.append(str(brand_t))
     if size:
-        details.append(size)
+        details.append(str(size))
     if cond:
-        details.append(cond)
-    category = " / ".join(details) if details else "Все"
+        details.append(str(cond))
+    category = html.escape(" / ".join(details) if details else "Все")
+    title_safe = html.escape(str(title_ru or title))
+    link_safe = html.escape(str(link), quote=True)
+    photo_safe = html.escape(str(photo_url or link), quote=True)
+    domain_safe = html.escape(f"https://{domain}", quote=True)
     return (
         f"⚭ <b>Страна:</b> {country}\n"
         f"□ <b>Категория:</b> {category}\n\n"
-        f"▣ <b>Название:</b> {title_ru or title}\n"
-        f"▣ <b>Цена:</b> {price:g} {curr}\n\n"
+        f"▣ <b>Название:</b> {title_safe}\n"
+        f"▣ <b>Цена:</b> {price:g} {html.escape(str(curr))}\n\n"
         f"◷ <b>Публикация:</b> {posted}\n\n"
         f"☮ <b>Продавец:</b> {seller_name}\n\n"
         "┌ <b>Объявления:</b> 1\n"
@@ -830,31 +922,35 @@ def format_vinted_message(item, domain, title, title_ru, price, curr, link, phot
         "├ <b>Покупки:</b> 0\n"
         "├ <b>Отзывы:</b> 0\n"
         f"└ <b>Регистрация:</b> {datetime.now().strftime('%d-%m-%Y')}\n\n"
-        f"🔗 <a href='{link}'>Ссылка на объявление</a>\n"
-        f"🔗 <a href='https://{domain}'>Ссылка на площадку</a>\n"
-        f"🔗 <a href='{link}'>Ссылка на чат</a>\n"
-        f"🔗 <a href='{photo_url or link}'>Ссылка на фото</a>\n\n"
+        f"🔗 <a href='{link_safe}'>Ссылка на объявление</a>\n"
+        f"🔗 <a href='{domain_safe}'>Ссылка на площадку</a>\n"
+        f"🔗 <a href='{link_safe}'>Ссылка на чат</a>\n"
+        f"🔗 <a href='{photo_safe}'>Ссылка на фото</a>\n\n"
         "👁 <i>0 просмотров</i>"
     )
 
 def format_mercari_message(item, name, name_ru, price, price_str, link, thumb):
     seller = item.get("seller") if isinstance(item, dict) else None
-    seller_name = (seller or {}).get("name") or (seller or {}).get("id") or "не указан"
+    seller_name = html.escape(str((seller or {}).get("name") or (seller or {}).get("id") or "не указан"))
+    title_safe = html.escape(str(name_ru or name))
+    price_safe = html.escape(str(price_str))
+    link_safe = html.escape(str(link), quote=True)
+    thumb_safe = html.escape(str(thumb or link), quote=True)
     return (
         "⚭ <b>Страна:</b> JP\n"
         "□ <b>Категория:</b> Mercari\n\n"
-        f"▣ <b>Название:</b> {name_ru or name}\n"
-        f"▣ <b>Цена:</b> {price_str}\n\n"
+        f"▣ <b>Название:</b> {title_safe}\n"
+        f"▣ <b>Цена:</b> {price_safe}\n\n"
         f"◷ <b>Публикация:</b> {datetime.now().strftime('%d-%m-%Y в %H:%M')}\n\n"
         f"☮ <b>Продавец:</b> {seller_name}\n\n"
         "┌ <b>Объявления:</b> 1\n"
         "├ <b>Продажи:</b> 0\n"
         "├ <b>Покупки:</b> 0\n"
         "└ <b>Отзывы:</b> 0\n\n"
-        f"🔗 <a href='{link}'>Ссылка на объявление</a>\n"
+        f"🔗 <a href='{link_safe}'>Ссылка на объявление</a>\n"
         "🔗 <a href='https://jp.mercari.com'>Ссылка на площадку</a>\n"
-        f"🔗 <a href='{link}'>Ссылка на чат</a>\n"
-        f"🔗 <a href='{thumb or link}'>Ссылка на фото</a>\n\n"
+        f"🔗 <a href='{link_safe}'>Ссылка на чат</a>\n"
+        f"🔗 <a href='{thumb_safe}'>Ссылка на фото</a>\n\n"
         "👁 <i>0 просмотров</i>"
     )
 
