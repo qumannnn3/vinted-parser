@@ -14,6 +14,8 @@ VINTED_REGIONS = {
 }
 CATALOG_IDS = [1, 3, 5, 9, 7, 12]
 
+MAX_AGE_HOURS = 24  # Фильтр: не старше 24 часов
+
 BAD_WORDS = [
     "pieluchy","pampers","baby","dziecko","dla dzieci","подгузники","детское",
     "nosidełko","fotelik","wózek","kocyk","smoczek","łóżeczko",
@@ -49,6 +51,7 @@ state = {
     "vinted_running": False,
     "vinted_min": 10,
     "vinted_max": 500,
+    "vinted_max_age_hours": MAX_AGE_HOURS,
     "vinted_interval": 300,
     "vinted_seen": set(),
     "vinted_stats": {"found": 0, "cycles": 0},
@@ -156,7 +159,25 @@ def is_relevant(item, brand):
     title  = item.get("title", "").lower()
     brand2 = item.get("brand_title", "").lower()
     word   = brand.split()[0]
-    return (word in title or word in brand2) and not any(w in title for w in BAD_WORDS)
+
+    # Фильтр по бренду и плохим словам
+    if not (word in title or word in brand2):
+        return False
+    if any(w in title for w in BAD_WORDS):
+        return False
+
+    # Фильтр по возрасту — не старше vinted_max_age_hours
+    created_ts = item.get("created_at_ts") or item.get("updated_at_ts")
+    if created_ts:
+        try:
+            age_hours = (time.time() - float(created_ts)) / 3600
+            if age_hours > state["vinted_max_age_hours"]:
+                log.debug(f"Пропущен (старый {age_hours:.1f}ч): {item.get('title','?')}")
+                return False
+        except (ValueError, TypeError):
+            pass
+
+    return True
 
 
 def vinted_loop():
@@ -197,9 +218,24 @@ def vinted_loop():
                     cond    = item.get("status", "")
                     url     = item.get("url", "")
                     link    = f"https://{domain}{url}" if url.startswith("/") else url
+
+                    # Время публикации для отображения
+                    created_ts = item.get("created_at_ts") or item.get("updated_at_ts")
+                    age_str = ""
+                    if created_ts:
+                        try:
+                            age_minutes = (time.time() - float(created_ts)) / 60
+                            if age_minutes < 60:
+                                age_str = f"🕐 {int(age_minutes)} мин. назад"
+                            else:
+                                age_str = f"🕐 {age_minutes/60:.1f} ч. назад"
+                        except (ValueError, TypeError):
+                            pass
+
                     lines   = [f"🛍 <b>VINTED — {(brand_t or brand).upper()}</b>", f"📦 {title}"]
                     if size: lines.append(f"📏 Размер: {size}")
                     if cond: lines.append(f"✨ Состояние: {cond}")
+                    if age_str: lines.append(age_str)
                     lines  += [f"💰 <b>{price} {curr}</b>", f"🔗 <a href='{link}'>СМОТРЕТЬ</a>"]
                     msg = "\n".join(lines)
 
@@ -237,25 +273,6 @@ def fetch_mercari(query):
             "Origin": "https://jp.mercari.com",
             "X-Platform": "web",
         }
-        # Публичный GraphQL-like endpoint без авторизации
-        payload = {
-            "operationName": "searchResponse",
-            "variables": {
-                "criteria": {
-                    "keyword": query,
-                    "sortBy": "SORT_BY_CREATED_TIME",
-                    "status": ["STATUS_TRADING"],
-                    "price": {
-                        "priceMin": state["mercari_min"],
-                        "priceMax": state["mercari_max"],
-                    },
-                    "categoryIds": ["1"],
-                },
-                "limit": 30,
-                "offset": 0,
-            },
-        }
-        # Fallback: простой GET через web search API
         r = requests.get(
             "https://api.mercari.jp/items/get",
             params={
@@ -278,7 +295,6 @@ def fetch_mercari(query):
             if items: log.info(f"Mercari '{query}' → {len(items)} товаров")
             return items
         else:
-            # Второй вариант — scrape через fetch API
             r2 = requests.get(
                 "https://jp.mercari.com/api/items/search",
                 params={
@@ -330,7 +346,6 @@ def mercari_loop():
                 except (ValueError, TypeError): continue
                 if not (state["mercari_min"] <= price <= state["mercari_max"]): continue
 
-                # Фильтр по бренду
                 name_l = name.lower()
                 word   = brand.split()[0]
                 if word not in name_l: continue
@@ -383,9 +398,12 @@ def main_kb():
 
 
 def vinted_settings_kb():
+    age = state["vinted_max_age_hours"]
+    age_label = f"{int(age)}ч" if age == int(age) else f"{age}ч"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"💶 Мин: {state['vinted_min']}€", callback_data="vset_min"),
          InlineKeyboardButton(f"💶 Макс: {state['vinted_max']}€", callback_data="vset_max")],
+        [InlineKeyboardButton(f"🕐 Возраст: до {age_label}", callback_data="vset_age")],
         [InlineKeyboardButton("🔙 Назад", callback_data="back")],
     ])
 
@@ -431,7 +449,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ms = "🟢" if state["mercari_running"] else "🔴"
     text = (
         f"<b>🛍 Vinted + Mercari Monitor</b>\n\n"
-        f"{vs} Vinted: .pl .lt .lv | {state['vinted_min']}–{state['vinted_max']}€\n"
+        f"{vs} Vinted: .pl .lt .lv | {state['vinted_min']}–{state['vinted_max']}€ | до {state['vinted_max_age_hours']}ч\n"
         f"{ms} Mercari: jp.mercari.com | {state['mercari_min']:,}–{state['mercari_max']:,}¥\n\n"
         f"Активных брендов: {len(state['active_brands'])} из {len(ALL_BRANDS)}\n\n"
         f"Ищет только одежду, обувь и аксессуары."
@@ -461,7 +479,12 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 await q.answer("⚠️ Выбери хотя бы один бренд!", show_alert=True); return
             state["vinted_running"] = True
             threading.Thread(target=vinted_loop, daemon=True).start()
-            await edit(f"▶️ <b>Vinted запущен!</b>\nБрендов: {len(state['active_brands'])}\nЦена: {state['vinted_min']}–{state['vinted_max']}€")
+            await edit(
+                f"▶️ <b>Vinted запущен!</b>\n"
+                f"Брендов: {len(state['active_brands'])}\n"
+                f"Цена: {state['vinted_min']}–{state['vinted_max']}€\n"
+                f"Фильтр возраста: до {state['vinted_max_age_hours']}ч"
+            )
 
     # ── Mercari старт/стоп ──
     elif data == "toggle_mercari":
@@ -478,7 +501,9 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # ── Настройки Vinted ──
     elif data == "vinted_settings":
         await edit(
-            f"<b>⚙️ Настройки Vinted</b>\n\nЦена в евро (€)\nМин: {state['vinted_min']}€\nМакс: {state['vinted_max']}€",
+            f"<b>⚙️ Настройки Vinted</b>\n\n"
+            f"Цена в евро (€)\nМин: {state['vinted_min']}€  Макс: {state['vinted_max']}€\n\n"
+            f"🕐 Фильтр возраста: не старше <b>{state['vinted_max_age_hours']}ч</b>",
             vinted_settings_kb()
         )
     elif data == "vset_min":
@@ -487,6 +512,15 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data == "vset_max":
         state["awaiting"] = "vinted_max"
         await edit(f"✏️ Введи максимальную цену Vinted в евро\nСейчас: <b>{state['vinted_max']}€</b>\n\nНапример: <code>500</code>")
+    elif data == "vset_age":
+        state["awaiting"] = "vinted_age"
+        await edit(
+            f"✏️ Введи максимальный возраст объявления в часах\n"
+            f"Сейчас: <b>{state['vinted_max_age_hours']}ч</b>\n\n"
+            f"Например: <code>24</code> — только за последние сутки\n"
+            f"<code>6</code> — только за последние 6 часов\n"
+            f"<code>168</code> — за последнюю неделю"
+        )
 
     # ── Настройки Mercari ──
     elif data == "mercari_settings":
@@ -509,7 +543,8 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"<b>📊 Статус</b>\n\n"
             f"<b>Vinted</b> {'🟢' if state['vinted_running'] else '🔴'}\n"
             f"Циклов: {vs['cycles']} | Находок: {vs['found']}\n"
-            f"Цена: {state['vinted_min']}–{state['vinted_max']}€\n\n"
+            f"Цена: {state['vinted_min']}–{state['vinted_max']}€\n"
+            f"Фильтр возраста: до {state['vinted_max_age_hours']}ч\n\n"
             f"<b>Mercari</b> {'🟢' if state['mercari_running'] else '🔴'}\n"
             f"Циклов: {ms['cycles']} | Находок: {ms['found']}\n"
             f"Цена: {state['mercari_min']:,}–{state['mercari_max']:,}¥\n\n"
@@ -549,7 +584,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ms2 = "🟢" if state["mercari_running"] else "🔴"
         await edit(
             f"<b>🛍 Vinted + Mercari Monitor</b>\n\n"
-            f"{vs2} Vinted: {state['vinted_min']}–{state['vinted_max']}€\n"
+            f"{vs2} Vinted: {state['vinted_min']}–{state['vinted_max']}€ | до {state['vinted_max_age_hours']}ч\n"
             f"{ms2} Mercari: {state['mercari_min']:,}–{state['mercari_max']:,}¥\n"
             f"Брендов: {len(state['active_brands'])}"
         )
@@ -560,8 +595,8 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().replace(",", ".")
 
     mapping = {
-        "vinted_min": ("vinted_min", "€", False),
-        "vinted_max": ("vinted_max", "€", False),
+        "vinted_min":  ("vinted_min",  "€", False),
+        "vinted_max":  ("vinted_max",  "€", False),
         "mercari_min": ("mercari_min", "¥", True),
         "mercari_max": ("mercari_max", "¥", True),
     }
@@ -571,7 +606,7 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
             val = int(float(text)) if is_int else float(text)
             if val > 0:
-                state[key]       = val
+                state[key]        = val
                 state["awaiting"] = None
                 fmt = f"{val:,}" if is_int else str(val)
                 await update.message.reply_text(
@@ -582,6 +617,23 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("⚠️ Введи число больше 0", reply_markup=main_kb())
         except ValueError:
             await update.message.reply_text("⚠️ Нужно число", reply_markup=main_kb())
+
+    elif aw == "vinted_age":
+        try:
+            val = float(text)
+            if val > 0:
+                state["vinted_max_age_hours"] = val
+                state["awaiting"]             = None
+                label = f"{int(val)}ч" if val == int(val) else f"{val}ч"
+                await update.message.reply_text(
+                    f"✅ Фильтр возраста Vinted: не старше <b>{label}</b>",
+                    parse_mode="HTML", reply_markup=main_kb()
+                )
+            else:
+                await update.message.reply_text("⚠️ Введи число больше 0", reply_markup=main_kb())
+        except ValueError:
+            await update.message.reply_text("⚠️ Нужно число (например: 24)", reply_markup=main_kb())
+
     else:
         await update.message.reply_text("Используй /start для управления.", reply_markup=main_kb())
 
