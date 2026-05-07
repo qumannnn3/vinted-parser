@@ -17,6 +17,7 @@ from shared import (
     keyword_matches_text,
     log,
     market_search_queries,
+    notification_chat_ids,
     publish_age_hours,
     state,
     translate_to_ru,
@@ -310,20 +311,25 @@ def format_mercari_message(item, name, name_ru, price_str, link):
 
 
 async def _send_mercari_item(bot_app, thumb, msg):
-    if not state["chat_id"] or not bot_app:
+    chat_ids = notification_chat_ids()
+    if not chat_ids or not bot_app:
         return
-    if thumb:
+    for chat_id in chat_ids:
+        if thumb:
+            try:
+                await bot_app.bot.send_photo(chat_id=chat_id, photo=thumb, caption=msg, parse_mode="HTML")
+                continue
+            except Exception as e:
+                log.warning("Mercari send_photo failed for chat %s: %s", chat_id, e)
         try:
-            await bot_app.bot.send_photo(chat_id=state["chat_id"], photo=thumb, caption=msg, parse_mode="HTML")
-            return
+            await bot_app.bot.send_message(
+                chat_id=chat_id,
+                text=msg,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
         except Exception as e:
-            log.warning("Mercari send_photo failed: %s", e)
-    await bot_app.bot.send_message(
-        chat_id=state["chat_id"],
-        text=msg,
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+            log.warning("Mercari send_message failed for chat %s: %s", chat_id, e)
 
 
 def mercari_loop(bot_app):
