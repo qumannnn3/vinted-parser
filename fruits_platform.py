@@ -52,6 +52,10 @@ FRUITS_ALLOWED_CATEGORIES = {
     "상의", "아우터", "하의", "신발", "가방", "모자", "액세서리",
 }
 
+FRUITS_MIN_MARKET_SAMPLES = 5
+FRUITS_MAX_MARKET_RATIO = 0.95
+FRUITS_MARKET_PRICE_MAX = 10000000
+
 FRUITS_BLOCKED_WORDS = [
     "perfume", "fragrance", "향수", "룸스프레이",
     "toy", "figure", "book", "camera", "phone", "watch",
@@ -107,6 +111,74 @@ def is_relevant_fruits_item(item, brand):
     return fruits_matches_brand(item, brand)
 
 
+def fruits_fashion_kind(item):
+    category = str(item.get("category") or "")
+    category_map = {
+        "상의": "tops",
+        "아우터": "outerwear",
+        "하의": "bottoms",
+        "신발": "shoes",
+        "가방": "bag",
+        "모자": "hat",
+        "액세서리": "accessory",
+    }
+    if category in category_map:
+        return category_map[category]
+    text = _text_blob(item)
+    groups = [
+        ("shoes", ["sneaker", "shoe", "boots", "loafer", "sandals"]),
+        ("bag", ["bag", "backpack", "wallet", "tote", "pouch"]),
+        ("tops", ["shirt", "tee", "hoodie", "sweatshirt", "sweater", "knit", "cardigan", "top"]),
+        ("outerwear", ["jacket", "coat", "vest", "parka", "down"]),
+        ("bottoms", ["pants", "jeans", "denim", "trousers", "shorts", "skirt", "cargo"]),
+        ("hat", ["hat", "cap", "beanie"]),
+        ("accessory", ["belt", "scarf", "gloves", "accessory"]),
+    ]
+    for kind, terms in groups:
+        if any(term in text for term in terms):
+            return kind
+    return "other"
+
+
+def _median(values):
+    values = sorted(values)
+    if not values:
+        return None
+    mid = len(values) // 2
+    if len(values) % 2:
+        return values[mid]
+    return int((values[mid - 1] + values[mid]) / 2)
+
+
+def fruits_market_price_krw(items, target_item, brand, keyword=None):
+    target_kind = fruits_fashion_kind(target_item)
+    target_id = target_item.get("id")
+    prices = []
+    for item in items or []:
+        if target_id and item.get("id") == target_id:
+            continue
+        try:
+            price = int(item.get("price", 0))
+        except (TypeError, ValueError):
+            continue
+        if price <= 0:
+            continue
+        if not is_relevant_fruits_item(item, brand):
+            continue
+        if fruits_fashion_kind(item) != target_kind:
+            continue
+        if keyword and not fruits_matches_keyword(item, keyword):
+            continue
+        prices.append(price)
+    if len(prices) < FRUITS_MIN_MARKET_SAMPLES:
+        return None
+    prices = sorted(prices)
+    if len(prices) >= 7:
+        cut = max(1, int(len(prices) * 0.1))
+        prices = prices[cut:-cut] or prices
+    return {"price": _median(prices), "count": len(prices)}
+
+
 def _normalize_fruits_item(item):
     item_id = str(item.get("id") or "")
     title = item.get("title") or "?"
@@ -128,7 +200,7 @@ def _normalize_fruits_item(item):
     }
 
 
-def fetch_fruits(query):
+def fetch_fruits(query, price_min=None, price_max=None):
     proxies = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
     items_by_id = {}
     try:
@@ -139,8 +211,8 @@ def fetch_fruits(query):
                     "variables": {
                         "filter": {
                             "query": query,
-                            "price_min": int(state["fruits_min"]),
-                            "price_max": int(state["fruits_max"]),
+                            "price_min": int(state["fruits_min"] if price_min is None else price_min),
+                            "price_max": int(state["fruits_max"] if price_max is None else price_max),
                             "show_only": "selling",
                         },
                         "offset": offset,
@@ -236,10 +308,18 @@ def fruits_loop(bot_app):
                 if _keyword and query.lower().strip() != brand.lower().strip():
                     search_queries.append(brand)
                 items_by_id = {}
+                market_items_by_id = {}
                 for search_query in dict.fromkeys(search_queries):
                     for found in fetch_fruits(search_query):
                         if found.get("id"):
                             items_by_id[found["id"]] = found
+                    # Отдельная реальная выборка для рынка: без пользовательского фильтра цены,
+                    # чтобы рыночная цена считалась по фактическим объявлениям FruitsFamily.
+                    for found in fetch_fruits(search_query, price_min=1, price_max=FRUITS_MARKET_PRICE_MAX):
+                        if found.get("id"):
+                            market_items_by_id[found["id"]] = found
+
+                market_items = list(market_items_by_id.values()) or list(items_by_id.values())
 
                 for item in items_by_id.values():
                     iid = item.get("id")
@@ -262,9 +342,31 @@ def fruits_loop(bot_app):
                         log.info("SKIP FruitsFamily age %s: %s", age_label, item.get("title", "?")[:60])
                         continue
 
+                    market = fruits_market_price_krw(market_items, item, brand, _keyword)
+                    if not market:
+                        log.info("SKIP FruitsFamily no market sample: %s", item.get("title", "?")[:60])
+                        continue
+                    market_krw = int(market["price"])
+                    market_count = int(market["count"])
+                    if item["price"] > market_krw * FRUITS_MAX_MARKET_RATIO:
+                        log.info("SKIP FruitsFamily not under market %s/%s: %s", item["price"], market_krw, item.get("title", "?")[:60])
+                        continue
+
+                    discount = max(0, round((1 - item["price"] / market_krw) * 100))
                     rate = get_fx_rate("KRW", "EUR")
                     eur = item["price"] * rate if rate else 0
-                    price_line = f"₩{item['price']:,}" + (f" (~{eur:.0f} EUR)" if eur else "")
+                    if eur:
+                        market_eur = market_krw * rate
+                        price_line = (
+                            f"₩{item['price']:,} (~{eur:.0f} EUR)\n"
+                            f"<b>Рынок:</b> ~₩{market_krw:,} (~{market_eur:.0f} EUR), "
+                            f"ниже на {discount}% · {market_count} сравн."
+                        )
+                    else:
+                        price_line = (
+                            f"₩{item['price']:,}\n"
+                            f"<b>Рынок:</b> ~₩{market_krw:,}, ниже на {discount}% · {market_count} сравн."
+                        )
                     title_ru = translate_to_ru(item["title"])
                     msg = format_fruits_message(item, title_ru, price_line)
                     state["fruits_seen"].add(iid)
