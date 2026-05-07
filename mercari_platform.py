@@ -12,6 +12,7 @@ from shared import (
     PROXY_URL,
     USER_AGENTS,
     age_in_range,
+    brand_match_terms,
     format_msk_timestamp,
     get_jpy_to_eur,
     keyword_matches_text,
@@ -97,31 +98,7 @@ def _mercari_text_blob(item):
 
 
 def _brand_tokens(brand):
-    aliases = {
-        "stone island": ["stone island", "stoneisland", "ストーンアイランド"],
-        "balenciaga": ["balenciaga", "バレンシアガ"],
-        "bape": ["bape", "a bathing ape", "ベイプ", "エイプ", "アベイシングエイプ"],
-        "aape": ["aape", "aape by a bathing ape", "エーエイプ"],
-        "gucci": ["gucci", "グッチ"],
-        "chanel": ["chanel", "シャネル"],
-        "jeremy scott": ["jeremy scott", "ジェレミースコット"],
-        "undercover": ["undercover", "under cover", "アンダーカバー"],
-        "comme des garcons": ["comme des garcons", "comme des garçons", "garcons", "garçons", "cdg", "コムデギャルソン"],
-        "yohji yamamoto": ["yohji yamamoto", "yohji", "ヨウジヤマモト"],
-        "vetements": ["vetements", "ヴェトモン"],
-        "palm angels": ["palm angels", "パームエンジェルス"],
-        "givenchy": ["givenchy", "ジバンシィ", "ジバンシー"],
-        "burberry": ["burberry", "バーバリー"],
-        "supreme": ["supreme", "シュプリーム"],
-        "amiri": ["amiri", "アミリ"],
-        "raf simons": ["raf simons", "ラフシモンズ"],
-        "acne studios": ["acne studios", "acne", "アクネ"],
-        "alyx": ["alyx", "1017 alyx", "1017 alyx 9sm", "アリクス"],
-        "maison margiela": ["maison margiela", "margiela", "マルジェラ"],
-    }
-    tokens = [brand.lower()]
-    tokens.extend(aliases.get(brand.lower(), []))
-    return [token for token in dict.fromkeys(tokens) if token]
+    return [token for token in dict.fromkeys(brand_match_terms(brand)) if token]
 
 
 def mercari_matches_brand(item, brand):
