@@ -16,7 +16,9 @@ from shared import (
     VINTED_REGIONS,
     age_in_range,
     format_msk_timestamp,
+    keyword_matches_text,
     log,
+    market_search_queries,
     publish_age_hours,
     state,
     translate_to_ru,
@@ -189,6 +191,10 @@ def is_deep_fashion_vinted_item(item):
     return True
 
 
+def vinted_matches_keyword(item, keyword):
+    return keyword_matches_text(_vinted_text_blob(item), keyword)
+
+
 def is_relevant(item, brand):
     title = item.get("title", "").lower()
     brand_title = item.get("brand_title", "").lower()
@@ -271,55 +277,61 @@ def vinted_loop(bot_app):
         for brand in brands:
             if not state["vinted_running"]:
                 break
-            for _, domain in VINTED_REGIONS.items():
+            for query, keyword in market_search_queries(brand, "vinted"):
                 if not state["vinted_running"]:
                     break
-                items = fetch_vinted(brand, domain)
-                if items == "BAN":
-                    time.sleep(random.randint(60, 120))
-                    continue
-                for item in items or []:
-                    iid = item.get("id")
-                    if iid in state["vinted_seen"]:
+                for _, domain in VINTED_REGIONS.items():
+                    if not state["vinted_running"]:
+                        break
+                    items = fetch_vinted(query, domain)
+                    if items == "BAN":
+                        time.sleep(random.randint(60, 120))
                         continue
-                    state["vinted_seen"].add(iid)
-                    if not is_relevant(item, brand):
-                        continue
-                    try:
-                        price = float(item.get("price", {}).get("amount", 0))
-                    except (ValueError, TypeError):
-                        continue
+                    for item in items or []:
+                        iid = item.get("id")
+                        if iid in state["vinted_seen"]:
+                            continue
+                        if not is_relevant(item, brand):
+                            continue
+                        if keyword and not vinted_matches_keyword(item, keyword):
+                            log.info("SKIP Vinted keyword '%s': %s", keyword, item.get("title", "?")[:40])
+                            continue
+                        try:
+                            price = float(item.get("price", {}).get("amount", 0))
+                        except (ValueError, TypeError):
+                            continue
 
-                    price_data = item.get("price", {})
-                    curr = price_data.get("currency_code", "EUR")
-                    price_eur = vinted_price_to_eur(price, curr)
-                    if not (state["vinted_min"] <= price_eur <= state["vinted_max"]):
-                        continue
+                        price_data = item.get("price", {})
+                        curr = price_data.get("currency_code", "EUR")
+                        price_eur = vinted_price_to_eur(price, curr)
+                        if not (state["vinted_min"] <= price_eur <= state["vinted_max"]):
+                            continue
 
-                    title = item.get("title", "?")
-                    size = item.get("size_title", "")
-                    brand_title = item.get("brand_title", "")
-                    condition = item.get("status", "")
-                    url = item.get("url", "")
-                    link = f"https://{domain}{url}" if url.startswith("/") else url
-                    title_ru = translate_to_ru(title)
-                    ts_d = parse_vinted_ts(item)
+                        title = item.get("title", "?")
+                        size = item.get("size_title", "")
+                        brand_title = item.get("brand_title", "")
+                        condition = item.get("status", "")
+                        url = item.get("url", "")
+                        link = f"https://{domain}{url}" if url.startswith("/") else url
+                        title_ru = translate_to_ru(title)
+                        ts_d = parse_vinted_ts(item)
 
-                    photos = item.get("photos") or item.get("photo") or []
-                    if isinstance(photos, dict):
-                        photos = [photos]
-                    photo_url = ""
-                    if photos:
-                        photo = photos[0]
-                        photo_url = photo.get("full_size_url") or photo.get("url") or photo.get("thumb_url", "")
+                        photos = item.get("photos") or item.get("photo") or []
+                        if isinstance(photos, dict):
+                            photos = [photos]
+                        photo_url = ""
+                        if photos:
+                            photo = photos[0]
+                            photo_url = photo.get("full_size_url") or photo.get("url") or photo.get("thumb_url", "")
 
-                    msg = format_vinted_message(
-                        item, domain, title, title_ru, price, curr, link, ts_d, brand_title, size, condition
-                    )
-                    state["vinted_stats"]["found"] += 1
-                    log.info("FOUND Vinted: %s — %s", title, price)
-                    loop.run_until_complete(_send_vinted_item(bot_app, photo_url, msg))
-                time.sleep(random.uniform(10, 18))
+                        msg = format_vinted_message(
+                            item, domain, title, title_ru, price, curr, link, ts_d, brand_title, size, condition
+                        )
+                        state["vinted_seen"].add(iid)
+                        state["vinted_stats"]["found"] += 1
+                        log.info("FOUND Vinted: %s — %s", title, price)
+                        loop.run_until_complete(_send_vinted_item(bot_app, photo_url, msg))
+                    time.sleep(random.uniform(10, 18))
             time.sleep(random.uniform(12, 25))
 
         if state["vinted_running"]:
