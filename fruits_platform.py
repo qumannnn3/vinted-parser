@@ -52,8 +52,8 @@ FRUITS_ALLOWED_CATEGORIES = {
     "상의", "아우터", "하의", "신발", "가방", "모자", "액세서리",
 }
 
-FRUITS_MIN_MARKET_SAMPLES = 5
-FRUITS_MAX_MARKET_RATIO = 0.80
+FRUITS_MIN_MARKET_SAMPLES = 1
+FRUITS_MAX_MARKET_RATIO = 0.90
 FRUITS_MARKET_PRICE_MAX = 10000000
 
 FRUITS_BLOCKED_WORDS = [
@@ -251,13 +251,17 @@ async def _send_fruits_item(bot_app, image, msg):
     for chat_id in chat_ids:
         if image:
             try:
-                await bot_app.bot.send_document(chat_id=chat_id, photo=image, caption=msg, parse_mode="HTML",
-            filename="image.jpg",
-            disable_content_type_detection=True
-        )
+                await bot_app.bot.send_document(
+                    chat_id=chat_id,
+                    document=image,
+                    caption=msg,
+                    parse_mode="HTML",
+                    filename="image.jpg",
+                    disable_content_type_detection=True,
+                )
                 continue
             except Exception as e:
-                log.warning("FruitsFamily send_photo failed for chat %s: %s", chat_id, e)
+                log.warning("FruitsFamily send_document failed for chat %s: %s", chat_id, e)
         try:
             await bot_app.bot.send_message(
                 chat_id=chat_id,
