@@ -3,7 +3,7 @@ import threading
 import time
 from datetime import datetime
 
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonCommands, ReplyKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonCommands, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from fruits_platform import fruits_loop
@@ -22,9 +22,11 @@ from shared import (
     parse_age_range,
     parse_keywords,
     parse_price_range,
+    register_chat_id,
     state,
     vinted_price_range_label,
 )
+from access_control import access_enabled, access_prompt_text, authorize_by_code, is_authorized
 from vinted_platform import vinted_loop
 
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO)
@@ -246,23 +248,93 @@ def _start_market_thread(market):
         threading.Thread(target=fruits_loop, args=(bot_app,), daemon=True).start()
 
 
-async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    state["chat_id"] = update.effective_chat.id
+def _update_user_id(update):
+    user = getattr(update, "effective_user", None)
+    return user.id if user else None
+
+
+async def _send_main_menu(update: Update, first_line="Панель команд включена"):
+    register_chat_id(update.effective_chat.id)
     state["current_market"] = None
-    await update.message.reply_text("Панель команд включена", reply_markup=quick_kb())
+    await update.message.reply_text(first_line, reply_markup=quick_kb())
     await update.message.reply_text(main_text(), reply_markup=main_kb(), parse_mode="HTML")
 
 
+async def _send_access_prompt(update: Update, prefix=None):
+    text = access_prompt_text()
+    if prefix:
+        text = f"{prefix}\n\n{text}"
+    await update.message.reply_text(text, reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
+
+
+async def _try_unlock_access(update: Update, code_text):
+    user_id = _update_user_id(update)
+    ok, reason = authorize_by_code(user_id, code_text)
+    if not ok and reason == "used":
+        await _send_access_prompt(update, "❌ Этот личный код уже использован другим аккаунтом.")
+        return False
+    if not ok and reason == "save":
+        await update.message.reply_text(
+            "✅ Код верный, но я не смог сохранить доступ. Проверь логи сервера.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return False
+    if not ok:
+        await _send_access_prompt(update, "❌ Код не подошел.")
+        return False
+
+    log.info("Доступ к боту выдан Telegram user_id=%s", user_id)
+    await _send_main_menu(update, "✅ Доступ открыт")
+    return True
+
+
+async def _ensure_message_access(update: Update):
+    if is_authorized(_update_user_id(update)):
+        return True
+    await _send_access_prompt(update)
+    return False
+
+
+async def _ensure_callback_access(q):
+    user_id = q.from_user.id if q and q.from_user else None
+    if is_authorized(user_id):
+        await q.answer()
+        return True
+    await q.answer("Сначала введи код доступа в чат", show_alert=True)
+    return False
+
+
+async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await _ensure_message_access(update):
+        return
+    await _send_main_menu(update)
+
+
 async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    state["chat_id"] = update.effective_chat.id
+    if not await _ensure_message_access(update):
+        return
+    register_chat_id(update.effective_chat.id)
     await update.message.reply_text("Панель команд включена", reply_markup=quick_kb())
     await update.message.reply_text(status_text(), reply_markup=main_kb(), parse_mode="HTML")
 
 
+async def cmd_access(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if is_authorized(_update_user_id(update)):
+        await _send_main_menu(update)
+        return
+
+    code = " ".join(ctx.args).strip()
+    if code:
+        await _try_unlock_access(update, code)
+        return
+    await _send_access_prompt(update)
+
+
 async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
-    state["chat_id"] = q.message.chat_id
+    if not await _ensure_callback_access(q):
+        return
+    register_chat_id(q.message.chat_id)
     data = q.data
 
     async def edit(text, kb=None):
@@ -424,9 +496,14 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    aw = state.get("awaiting")
     raw_text = update.message.text.strip()
     button_text = raw_text.lower()
+
+    if not is_authorized(_update_user_id(update)):
+        await _try_unlock_access(update, raw_text)
+        return
+
+    aw = state.get("awaiting")
 
     if button_text in ("меню", "menu", "/menu", "/start"):
         state["awaiting"] = None
@@ -518,6 +595,7 @@ async def setup_bot_commands(app):
         BotCommand("start", "Запустить бота"),
         BotCommand("menu", "Главное меню"),
         BotCommand("status", "Статус мониторинга"),
+        BotCommand("access", "Ввести код доступа"),
     ]
     await app.bot.set_my_commands(commands)
     await app.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
@@ -530,7 +608,7 @@ def main():
         time.sleep(300)
         return
 
-    log.info("Запуск | брендов: %s", len(ALL_BRANDS))
+    log.info("Запуск | брендов: %s | приватный доступ: %s", len(ALL_BRANDS), "включен" if access_enabled() else "выключен")
     builder = Application.builder().token(BOT_TOKEN)
     if PROXY_URL:
         if hasattr(builder, "proxy_url"):
@@ -553,6 +631,7 @@ def main():
     )
     bot_app.add_handler(CommandHandler(["start", "menu"], cmd_start))
     bot_app.add_handler(CommandHandler("status", cmd_status))
+    bot_app.add_handler(CommandHandler("access", cmd_access))
     bot_app.add_handler(CallbackQueryHandler(on_button))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     bot_app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=30)
