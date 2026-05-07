@@ -270,7 +270,10 @@ async def _send_mercari_item(bot_app, thumb, msg):
     for chat_id in chat_ids:
         if thumb:
             try:
-                await bot_app.bot.send_photo(chat_id=chat_id, photo=thumb, caption=msg, parse_mode="HTML")
+                await bot_app.bot.send_document(chat_id=chat_id, photo=thumb, caption=msg, parse_mode="HTML",
+            filename="image.jpg",
+            disable_content_type_detection=True
+        )
                 continue
             except Exception as e:
                 log.warning("Mercari send_photo failed for chat %s: %s", chat_id, e)
