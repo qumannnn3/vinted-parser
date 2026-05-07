@@ -14,7 +14,9 @@ from shared import (
     age_in_range,
     format_msk_timestamp,
     get_jpy_to_eur,
+    keyword_matches_text,
     log,
+    market_search_queries,
     publish_age_hours,
     state,
     translate_to_ru,
@@ -150,6 +152,10 @@ def deep_fashion_kind(item):
 
 def is_relevant_mercari_item(item):
     return bool(deep_fashion_kind(item))
+
+
+def mercari_matches_keyword(item, keyword):
+    return keyword_matches_text(_mercari_text_blob(item), keyword)
 
 
 def _best_mercari_image_url(url):
@@ -333,87 +339,93 @@ def mercari_loop(bot_app):
         for brand in brands:
             if not state["mercari_running"]:
                 break
-            items = loop.run_until_complete(fetch_mercari(brand))
-            for item in items or []:
-                iid = item.get("id")
-                name = item.get("name", "?")
-                if not iid:
-                    log.info("SKIP Mercari no item id: %s", name[:60])
-                    continue
-                if iid in state["mercari_seen"]:
-                    continue
+            for query, keyword in market_search_queries(brand, "mercari"):
+                if not state["mercari_running"]:
+                    break
+                items = loop.run_until_complete(fetch_mercari(query))
+                for item in items or []:
+                    iid = item.get("id")
+                    name = item.get("name", "?")
+                    if not iid:
+                        log.info("SKIP Mercari no item id: %s", name[:60])
+                        continue
+                    if iid in state["mercari_seen"]:
+                        continue
 
-                try:
-                    price = int(item.get("price", 0))
-                except (ValueError, TypeError):
-                    log.info("SKIP Mercari bad price: %s price=%r", name[:60], item.get("price"))
-                    continue
-                if not (state["mercari_min"] <= price <= state["mercari_max"]):
-                    log.info("SKIP Mercari price %s: %s", price, name[:60])
-                    continue
-                if not mercari_matches_brand(item, brand):
-                    log.info("SKIP Mercari brand mismatch '%s': %s", brand, name[:60])
-                    continue
-                if not is_relevant_mercari_item(item):
-                    log.info("SKIP Mercari category: %s", name[:60])
-                    continue
-                if not item.get("created_at"):
-                    log.info("SKIP Mercari no publish time: %s", name[:60])
-                    continue
+                    try:
+                        price = int(item.get("price", 0))
+                    except (ValueError, TypeError):
+                        log.info("SKIP Mercari bad price: %s price=%r", name[:60], item.get("price"))
+                        continue
+                    if not (state["mercari_min"] <= price <= state["mercari_max"]):
+                        log.info("SKIP Mercari price %s: %s", price, name[:60])
+                        continue
+                    if not mercari_matches_brand(item, brand):
+                        log.info("SKIP Mercari brand mismatch '%s': %s", brand, name[:60])
+                        continue
+                    if keyword and not mercari_matches_keyword(item, keyword):
+                        log.info("SKIP Mercari keyword '%s': %s", keyword, name[:60])
+                        continue
+                    if not is_relevant_mercari_item(item):
+                        log.info("SKIP Mercari category: %s", name[:60])
+                        continue
+                    if not item.get("created_at"):
+                        log.info("SKIP Mercari no publish time: %s", name[:60])
+                        continue
 
-                age_ok = age_in_range(
-                    item.get("created_at"),
-                    state["mercari_min_age_hours"],
-                    state["mercari_max_age_hours"],
-                )
-                if age_ok is False:
-                    age_hours = publish_age_hours(item.get("created_at"))
-                    age_label = f"{age_hours:.1f}h" if age_hours is not None else "unknown"
-                    log.info("SKIP Mercari age %s: %s", age_label, name[:60])
-                    continue
-
-                thumbs = item.get("thumbnails") or item.get("item_images") or []
-                thumb = (thumbs[0].get("url") or thumbs[0].get("image_url", "")) if thumbs else ""
-                thumb = _best_mercari_image_url(thumb)
-                link = item.get("url") or f"https://jp.mercari.com/item/{iid}"
-                if not link or link.rstrip("/").endswith("/item"):
-                    log.info("SKIP Mercari bad link id=%r: %s", iid, name[:60])
-                    continue
-
-                name_ru = translate_to_ru(name)
-                rate = get_jpy_to_eur()
-                eur = round(price * rate, 2) if rate else None
-                market = mercari_market_price_jpy(items, item, brand)
-                if not market:
-                    log.info("SKIP Mercari no market sample: %s", name[:60])
-                    continue
-                market_jpy = int(market["price"])
-                market_count = int(market["count"])
-                if price > market_jpy * MERCARI_MAX_MARKET_RATIO:
-                    log.info("SKIP Mercari not under market %s/%s: %s", price, market_jpy, name[:60])
-                    continue
-
-                discount = max(0, round((1 - price / market_jpy) * 100))
-                if eur:
-                    market_eur = round(market_jpy * rate, 0)
-                    price_str = (
-                        f"¥{price:,} (~{eur:.0f} EUR)\n"
-                        f"<b>Рынок:</b> ~¥{market_jpy:,} (~{market_eur:.0f} EUR), "
-                        f"ниже на {discount}% · {market_count} сравн."
+                    age_ok = age_in_range(
+                        item.get("created_at"),
+                        state["mercari_min_age_hours"],
+                        state["mercari_max_age_hours"],
                     )
-                else:
-                    price_str = (
-                        f"¥{price:,}\n"
-                        f"<b>Рынок:</b> ~¥{market_jpy:,}, ниже на {discount}% · {market_count} сравн."
-                    )
+                    if age_ok is False:
+                        age_hours = publish_age_hours(item.get("created_at"))
+                        age_label = f"{age_hours:.1f}h" if age_hours is not None else "unknown"
+                        log.info("SKIP Mercari age %s: %s", age_label, name[:60])
+                        continue
 
-                msg = format_mercari_message(item, name, name_ru, price_str, link)
-                state["mercari_seen"].add(iid)
-                state["mercari_stats"]["found"] += 1
-                log.info("FOUND Mercari: %s — ¥%s", name, price)
-                loop.run_until_complete(_send_mercari_item(bot_app, thumb, msg))
+                    thumbs = item.get("thumbnails") or item.get("item_images") or []
+                    thumb = (thumbs[0].get("url") or thumbs[0].get("image_url", "")) if thumbs else ""
+                    thumb = _best_mercari_image_url(thumb)
+                    link = item.get("url") or f"https://jp.mercari.com/item/{iid}"
+                    if not link or link.rstrip("/").endswith("/item"):
+                        log.info("SKIP Mercari bad link id=%r: %s", iid, name[:60])
+                        continue
 
-            time.sleep(random.uniform(8, 15))
+                    name_ru = translate_to_ru(name)
+                    rate = get_jpy_to_eur()
+                    eur = round(price * rate, 2) if rate else None
+                    market = mercari_market_price_jpy(items, item, brand)
+                    if not market:
+                        log.info("SKIP Mercari no market sample: %s", name[:60])
+                        continue
+                    market_jpy = int(market["price"])
+                    market_count = int(market["count"])
+                    if price > market_jpy * MERCARI_MAX_MARKET_RATIO:
+                        log.info("SKIP Mercari not under market %s/%s: %s", price, market_jpy, name[:60])
+                        continue
+
+                    discount = max(0, round((1 - price / market_jpy) * 100))
+                    if eur:
+                        market_eur = round(market_jpy * rate, 0)
+                        price_str = (
+                            f"¥{price:,} (~{eur:.0f} EUR)\n"
+                            f"<b>Рынок:</b> ~¥{market_jpy:,} (~{market_eur:.0f} EUR), "
+                            f"ниже на {discount}% · {market_count} сравн."
+                        )
+                    else:
+                        price_str = (
+                            f"¥{price:,}\n"
+                            f"<b>Рынок:</b> ~¥{market_jpy:,}, ниже на {discount}% · {market_count} сравн."
+                        )
+
+                    msg = format_mercari_message(item, name, name_ru, price_str, link)
+                    state["mercari_seen"].add(iid)
+                    state["mercari_stats"]["found"] += 1
+                    log.info("FOUND Mercari: %s — ¥%s", name, price)
+                    loop.run_until_complete(_send_mercari_item(bot_app, thumb, msg))
+
+                time.sleep(random.uniform(8, 15))
 
         if state["mercari_running"]:
             time.sleep(state["mercari_interval"])
