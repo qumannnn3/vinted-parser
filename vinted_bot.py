@@ -29,6 +29,8 @@ BAD_WORDS = [
 
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO)
 log = logging.getLogger(__name__)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 _eur_rate_cache = {"rate": None, "ts": 0}
 
@@ -101,6 +103,7 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
 ]
 vinted_sessions: dict = {}
+mercari_api = None
 
 def make_vinted_session(domain):
     s = requests.Session()
@@ -382,7 +385,61 @@ def vinted_loop():
             time.sleep(state["vinted_interval"])
     loop.close()
 
-def fetch_mercari(query):
+def _obj_get(obj, *names, default=None):
+    for name in names:
+        if isinstance(obj, dict) and name in obj:
+            return obj[name]
+        if hasattr(obj, name):
+            return getattr(obj, name)
+    return default
+
+def _normalize_mercari_item(item):
+    item_id = _obj_get(item, "id", "item_id", "productCode", default="")
+    name = _obj_get(item, "name", "productName", "title", default="?")
+    price = _obj_get(item, "price", default=0)
+    status = _obj_get(item, "status", "item_status", "itemStatus", default="")
+    thumbnails = _obj_get(item, "thumbnails", "item_images", "images", default=[]) or []
+    thumb = _obj_get(item, "imageURL", "image_url", "thumbnail", default="")
+    if not thumb and thumbnails:
+        first = thumbnails[0]
+        thumb = first if isinstance(first, str) else _obj_get(first, "url", "image_url", "src", default="")
+    url = _obj_get(item, "productURL", "url", default="")
+    return {
+        "id": item_id,
+        "name": name,
+        "price": price,
+        "status": status,
+        "url": url,
+        "thumbnails": [{"url": thumb}] if thumb else [],
+    }
+
+async def fetch_mercari(query):
+    global mercari_api
+    try:
+        from mercapi import Mercapi
+        from mercapi.requests import SearchRequestData
+
+        if mercari_api is None:
+            proxies = {"http://": PROXY_URL, "https://": PROXY_URL} if PROXY_URL else None
+            mercari_api = Mercapi(proxies=proxies, user_agent=random.choice(USER_AGENTS))
+
+        results = await mercari_api.search(
+            query,
+            sort_by=SearchRequestData.SortBy.SORT_CREATED_TIME,
+            sort_order=SearchRequestData.SortOrder.ORDER_DESC,
+            status=[SearchRequestData.Status.STATUS_ON_SALE],
+            price_min=state["mercari_min"],
+            price_max=state["mercari_max"],
+        )
+        items = [_normalize_mercari_item(item) for item in getattr(results, "items", [])[:30]]
+        if items:
+            log.info(f"Mercari '{query}' -> {len(items)} товаров")
+        return items
+    except Exception as e:
+        log.warning(f"fetch_mercari '{query}': {e}")
+        return []
+
+def fetch_mercari_old(query):
     try:
         proxies = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
         headers = {
@@ -448,7 +505,7 @@ def mercari_loop():
 
         for brand in brands:
             if not state["mercari_running"]: break
-            items = fetch_mercari(brand)
+            items = loop.run_until_complete(fetch_mercari(brand))
             for item in (items or []):
                 iid = item.get("id")
                 if iid in state["mercari_seen"]: continue
@@ -467,7 +524,7 @@ def mercari_loop():
                 thumbs    = item.get("thumbnails") or item.get("item_images") or []
                 thumb     = (thumbs[0].get("url") or thumbs[0].get("image_url", "")) if thumbs else ""
                 iid2      = item.get("id", "")
-                link      = f"https://jp.mercari.com/item/{iid2}"
+                link      = item.get("url") or f"https://jp.mercari.com/item/{iid2}"
                 name_ru   = translate_to_ru(name)
                 rate      = get_jpy_to_eur()
                 eur       = round(price * rate, 2) if rate else None
