@@ -238,7 +238,15 @@ def vinted_matches_keyword(item, keyword):
 
 
 def vinted_matches_brand(item, brand):
-    return _has_any_term(_vinted_text_blob(item), brand_match_terms(brand))
+    brand_text = " ".join(
+        str(value or "")
+        for value in (
+            item.get("brand_title"),
+            item.get("brand"),
+            item.get("brand_name"),
+        )
+    ).lower()
+    return bool(brand_text and _has_any_term(brand_text, brand_match_terms(brand)))
 
 
 def vinted_fashion_kind(item):
