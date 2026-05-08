@@ -53,6 +53,18 @@ bot_app = None
 START_BRANDING_TEXT = "parser by t.me/huntparser"
 
 
+def _market_flag(market):
+    if market == "mercari":
+        return "🇯🇵"
+    if market == "fruits":
+        return "🇰🇷"
+    if market == "grailed":
+        return "🇺🇸"
+    if market == "vinted":
+        return "🇪🇺"
+    return ""
+
+
 def _market_title(market=None):
     market = market or state.get("current_market") or "vinted"
     if market == "fruits":
@@ -100,40 +112,31 @@ def _keywords_label(market):
 
 
 def main_text():
+    def line(market):
+        status = "on" if _market_running(market) else "off"
+        return (
+            f"{_market_flag(market)} <b>{_market_title(market)}</b> | "
+            f"{status} | {_price_label(market)} | {_age_label(market)} | {_keywords_label(market)}"
+        )
+
     return (
         "<b>huntparser</b>\n"
-        "Choose a marketplace for monitoring\n\n"
-        f"<b>Mercari.jp</b>\n"
-        f"- Status: {'running' if state['mercari_running'] else 'stopped'}\n"
-        f"- Price: {mercari_price_range_label()}\n"
-        f"- Age: {_age_label('mercari')}\n"
-        f"- Keywords: {_keywords_label('mercari')}\n\n"
-        f"<b>FruitsFamily</b>\n"
-        f"- Status: {'running' if state['fruits_running'] else 'stopped'}\n"
-        f"- Price: {fruits_price_range_label()}\n"
-        f"- Age: {_age_label('fruits')}\n"
-        f"- Keywords: {_keywords_label('fruits')}\n\n"
-        f"<b>Grailed</b>\n"
-        f"- Status: {'running' if state['grailed_running'] else 'stopped'}\n"
-        f"- Price: {grailed_price_range_label()}\n"
-        f"- Age: {_age_label('grailed')}\n"
-        f"- Keywords: {_keywords_label('grailed')}\n\n"
-        f"<b>Vinted</b>\n"
-        f"- Status: {'running' if state['vinted_running'] else 'stopped'}\n"
-        f"- Price: {vinted_price_range_label()}\n"
-        f"- Age: {_age_label('vinted')}\n"
-        f"- Keywords: {_keywords_label('vinted')}"
+        "market | status | price | age | keywords\n\n"
+        f"{line('mercari')}\n"
+        f"{line('fruits')}\n"
+        f"{line('grailed')}\n"
+        f"{line('vinted')}"
     )
 
 def main_kb():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Mercari.jp", callback_data="pick_mercari"),
-            InlineKeyboardButton("FruitsFamily", callback_data="pick_fruits"),
+            InlineKeyboardButton("🇯🇵 Mercari.jp", callback_data="pick_mercari"),
+            InlineKeyboardButton("🇰🇷 FruitsFamily", callback_data="pick_fruits"),
         ],
         [
-            InlineKeyboardButton("Vinted", callback_data="pick_vinted"),
-            InlineKeyboardButton("Grailed", callback_data="pick_grailed"),
+            InlineKeyboardButton("🇪🇺 Vinted", callback_data="pick_vinted"),
+            InlineKeyboardButton("🇺🇸 Grailed", callback_data="pick_grailed"),
         ],
         [
             InlineKeyboardButton("Brands", callback_data="brands_0"),
@@ -146,8 +149,8 @@ def quick_kb():
         [
             ["Меню", "Статус"],
             ["⏹ Остановить"],
-            ["Mercari.jp", "FruitsFamily", "Vinted"],
-            ["Grailed"],
+            ["🇯🇵 Mercari.jp", "🇰🇷 FruitsFamily"],
+            ["🇪🇺 Vinted", "🇺🇸 Grailed"],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -765,24 +768,24 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if button_text in ("mercari", "mercari.jp", "меркари"):
+    if "mercari" in button_text or button_text in ("меркари",):
         state["awaiting"] = None
         state["current_market"] = "mercari"
         await update.message.reply_text(market_text("mercari"), reply_markup=market_kb("mercari"), parse_mode="HTML")
         return
 
-    if button_text in ("fruits", "fruitsfamily", "fruits family", "фрутс", "фрутсфэмили"):
+    if "fruits" in button_text or button_text in ("фрутс", "фрутсфэмили"):
         state["awaiting"] = None
         state["current_market"] = "fruits"
         await update.message.reply_text(market_text("fruits"), reply_markup=market_kb("fruits"), parse_mode="HTML")
         return
 
-    if button_text in ("vinted", "винтед"):
+    if "vinted" in button_text or button_text in ("винтед",):
         state["awaiting"] = None
         state["current_market"] = "vinted"
         await update.message.reply_text(market_text("vinted"), reply_markup=market_kb("vinted"), parse_mode="HTML")
         return
-    if button_text in ("grailed", "грейлд"):
+    if "grailed" in button_text or button_text in ("грейлд",):
         state["awaiting"] = None
         state["current_market"] = "grailed"
         await update.message.reply_text(market_text("grailed"), reply_markup=market_kb("grailed"), parse_mode="HTML")
