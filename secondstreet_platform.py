@@ -1,5 +1,6 @@
 import asyncio
 import html
+import os
 import random
 import re
 import time
@@ -9,6 +10,7 @@ import requests
 
 from shared import (
     ALL_BRANDS,
+    DEEP_FASHION_BLOCKED_WORDS,
     PROXY_URL,
     USER_AGENTS,
     brand_match_terms,
@@ -26,6 +28,11 @@ from shared import (
 
 SECONDSTREET_HOME_URL = "https://www.2ndstreet.jp"
 SECONDSTREET_SEARCH_URL = f"{SECONDSTREET_HOME_URL}/search"
+SECONDSTREET_COOKIE = os.environ.get(
+    "SECONDSTREET_COOKIE",
+    os.environ.get("SECONDSTREET_COOKIE_STRING", ""),
+)
+SECONDSTREET_403_STOP = os.environ.get("SECONDSTREET_403_STOP", "1").lower() not in ("0", "false", "no")
 
 SECONDSTREET_KIND_WORDS = [
     "shirt", "tee", "t-shirt", "hoodie", "sweatshirt", "sweater", "knit",
@@ -42,6 +49,26 @@ SECONDSTREET_KIND_WORDS = [
     "\u30d6\u30fc\u30c4", "\u30b5\u30f3\u30c0\u30eb", "\u30d0\u30c3\u30b0",
     "\u8ca1\u5e03", "\u5e3d\u5b50", "\u30ad\u30e3\u30c3\u30d7", "\u30d9\u30eb\u30c8",
 ]
+
+SECONDSTREET_BLOCKED_WORDS = [
+    *DEEP_FASHION_BLOCKED_WORDS,
+    "watch", "watches", "clock", "quartz", "analog", "digital",
+    "keychain", "key ring", "tie", "necktie",
+    "phone", "smartphone", "iphone", "android", "camera", "lens",
+    "headphone", "earphone", "speaker", "game", "dvd", "cd",
+    "figure", "toy", "hobby", "golf", "fishing",
+    "sofa", "chair", "desk", "table", "furniture", "interior",
+    "kitchen", "tableware", "plate", "cup", "mug", "glass",
+    "kids", "baby", "child",
+    "\u8155\u6642\u8a08", "\u6642\u8a08", "\u30af\u30a9\u30fc\u30c4", "\u30a2\u30ca\u30ed\u30b0",
+    "\u30ad\u30fc\u30db\u30eb\u30c0\u30fc", "\u30ad\u30fc\u30ea\u30f3\u30b0", "\u30cd\u30af\u30bf\u30a4",
+    "\u30b9\u30de\u30db", "\u643a\u5e2f", "\u30ab\u30e1\u30e9", "\u30ec\u30f3\u30ba",
+    "\u30d5\u30a3\u30ae\u30e5\u30a2", "\u304a\u3082\u3061\u3083", "\u30db\u30d3\u30fc", "\u30b4\u30eb\u30d5",
+    "\u5bb6\u5177", "\u5bb6\u96fb", "\u30ad\u30c3\u30c1\u30f3", "\u98df\u5668",
+    "\u30ad\u30c3\u30ba", "\u30d9\u30d3\u30fc", "\u5b50\u4f9b",
+]
+
+_secondstreet_blocked = False
 
 
 def _strip_tags(raw):
@@ -63,21 +90,64 @@ def secondstreet_matches_keyword(item, keyword):
     return keyword_matches_text(_secondstreet_text_blob(item), keyword)
 
 
+def _has_blocked_word(item):
+    return _has_any_term(_secondstreet_text_blob(item), SECONDSTREET_BLOCKED_WORDS)
+
+
 def is_relevant_secondstreet_item(item):
-    return _has_any_term(_secondstreet_text_blob(item), SECONDSTREET_KIND_WORDS)
+    text = _secondstreet_text_blob(item)
+    if _has_blocked_word(item):
+        return False
+    return _has_any_term(text, SECONDSTREET_KIND_WORDS)
+
+
+def _make_session():
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Referer": SECONDSTREET_HOME_URL + "/",
+        "Upgrade-Insecure-Requests": "1",
+    })
+    if SECONDSTREET_COOKIE:
+        session.headers["Cookie"] = SECONDSTREET_COOKIE
+    if PROXY_URL:
+        session.proxies = {"http": PROXY_URL, "https": PROXY_URL}
+    return session
+
+
+def _handle_secondstreet_403(query):
+    global _secondstreet_blocked
+    if _secondstreet_blocked:
+        return
+    _secondstreet_blocked = True
+    log.error(
+        "2nd Street вернул 403 на %r. Останавливаю 2nd Street, чтобы не спамить лог. "
+        "Нужен рабочий SECONDSTREET_COOKIE из браузера или прокси/регион, который 2ndstreet.jp не блокирует.",
+        query,
+    )
+    if SECONDSTREET_403_STOP:
+        state["secondstreet_running"] = False
 
 
 def fetch_secondstreet(query, price_min=None, price_max=None, limit=30):
+    if _secondstreet_blocked:
+        return []
     params = f"keyword={quote_plus(query)}&sortBy=arrival"
     url = f"{SECONDSTREET_SEARCH_URL}?{params}"
-    headers = {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "ja,en;q=0.8",
-    }
-    proxies = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
+    session = _make_session()
     try:
-        response = requests.get(url, headers=headers, proxies=proxies, timeout=20)
+        response = session.get(SECONDSTREET_HOME_URL, timeout=15)
+        if response.status_code == 403:
+            _handle_secondstreet_403(query)
+            return []
+        response = session.get(url, timeout=20)
+        if response.status_code == 403:
+            _handle_secondstreet_403(query)
+            return []
         response.raise_for_status()
     except Exception as e:
         log.warning("fetch_2ndstreet '%s': %s", query, e)
@@ -100,7 +170,7 @@ def fetch_secondstreet(query, price_min=None, price_max=None, limit=30):
         end = min(len(html_text), match.end() + 1800)
         block = html_text[start:end]
         text = _strip_tags(block)
-        price_match = re.search(r"[¥￥]\s*([\d,]+)", text)
+        price_match = re.search(r"[\u00a5\uffe5]\s*([\d,]+)", text)
         if not price_match:
             continue
         try:
@@ -178,6 +248,8 @@ async def _send_secondstreet_item(bot_app, image, msg):
 
 
 def secondstreet_loop(bot_app):
+    global _secondstreet_blocked
+    _secondstreet_blocked = False
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     log.info("2nd Street мониторинг запущен")
@@ -194,6 +266,8 @@ def secondstreet_loop(bot_app):
                 if not state["secondstreet_running"]:
                     break
                 items = fetch_secondstreet(query)
+                if not state["secondstreet_running"]:
+                    break
                 for item in items:
                     iid = item.get("id")
                     title = item.get("title", "?")
@@ -226,7 +300,8 @@ def secondstreet_loop(bot_app):
                     log.info("FOUND 2nd Street: %s — ¥%s", title, price)
                     loop.run_until_complete(_send_secondstreet_item(bot_app, item.get("image"), msg))
 
-                time.sleep(random.uniform(8, 15))
+                if state["secondstreet_running"]:
+                    time.sleep(random.uniform(8, 15))
 
         state["secondstreet_bootstrap_done"] = True
         if state["secondstreet_running"]:
