@@ -12,21 +12,12 @@ try:
 except Exception as e:
     logging.getLogger("parser").error("FruitsFamily не загружен: %s", e)
     fruits_loop = None
-try:
-    from goofish_platform import gofish_loop
-except Exception as e:
-    logging.getLogger("parser").error("Goofish не загружен из goofish_platform.py: %s", e)
-    try:
-        from gofish_platform import gofish_loop
-    except Exception as fallback_error:
-        logging.getLogger("parser").error("Goofish не загружен из gofish_platform.py: %s", fallback_error)
-        gofish_loop = None
 from mercari_platform import mercari_loop
 try:
-    from depop_platform import depop_loop
+    from grailed_platform import grailed_loop
 except Exception as e:
-    logging.getLogger("parser").error("Depop не загружен: %s", e)
-    depop_loop = None
+    logging.getLogger("parser").error("Grailed не загружен: %s", e)
+    grailed_loop = None
 from shared import (
     ALL_BRANDS,
     BOT_TOKEN,
@@ -35,9 +26,8 @@ from shared import (
     VINTED_REGIONS,
     age_range_label,
     brand_aliases,
-    depop_price_range_label,
     fruits_price_range_label,
-    gofish_price_range_label,
+    grailed_price_range_label,
     keywords_label,
     log,
     mercari_price_range_label,
@@ -45,7 +35,10 @@ from shared import (
     parse_keywords,
     parse_price_range,
     register_chat_id,
+    current_user_id,
+    save_current_user_state,
     set_telegram_loop,
+    set_current_user,
     state,
     vinted_price_range_label,
 )
@@ -64,10 +57,8 @@ def _market_title(market=None):
     market = market or state.get("current_market") or "vinted"
     if market == "fruits":
         return "FruitsFamily"
-    if market == "gofish":
-        return "Gofish"
-    if market == "depop":
-        return "Depop"
+    if market == "grailed":
+        return "Grailed"
     return "Mercari.jp" if market == "mercari" else "Vinted"
 
 
@@ -75,10 +66,8 @@ def _market_running(market=None):
     market = market or state.get("current_market") or "vinted"
     if market == "fruits":
         return state["fruits_running"]
-    if market == "gofish":
-        return state["gofish_running"]
-    if market == "depop":
-        return state["depop_running"]
+    if market == "grailed":
+        return state["grailed_running"]
     return state["mercari_running"] if market == "mercari" else state["vinted_running"]
 
 
@@ -86,20 +75,16 @@ def _market_stats(market=None):
     market = market or state.get("current_market") or "vinted"
     if market == "fruits":
         return state["fruits_stats"]
-    if market == "gofish":
-        return state["gofish_stats"]
-    if market == "depop":
-        return state["depop_stats"]
+    if market == "grailed":
+        return state["grailed_stats"]
     return state["mercari_stats"] if market == "mercari" else state["vinted_stats"]
 
 
 def _price_label(market):
     if market == "fruits":
         return fruits_price_range_label()
-    if market == "gofish":
-        return gofish_price_range_label()
-    if market == "depop":
-        return depop_price_range_label()
+    if market == "grailed":
+        return grailed_price_range_label()
     return mercari_price_range_label() if market == "mercari" else vinted_price_range_label()
 
 
@@ -117,54 +102,44 @@ def _keywords_label(market):
 def main_text():
     return (
         "<b>huntparser</b>\n"
-        "└ Выбери площадку для мониторинга\n\n"
-        f"🇯🇵 <b>Mercari.jp</b>\n"
-        f"└ Статус: {'работает' if state['mercari_running'] else 'остановлен'}\n"
-        f"└ Цена: {mercari_price_range_label()}\n"
-        f"└ Публикация: {_age_label('mercari')}\n"
-        f"└ Ключи: {_keywords_label('mercari')}\n\n"
-        f"🇰🇷 <b>FruitsFamily</b>\n"
-        f"└ Статус: {'работает' if state['fruits_running'] else 'остановлен'}\n"
-        f"└ Цена: {fruits_price_range_label()}\n"
-        f"└ Публикация: {_age_label('fruits')}\n"
-        f"└ Ключи: {_keywords_label('fruits')}\n\n"
-        f"🐟 <b>Gofish</b>\n"
-        f"└ Статус: {'работает' if state['gofish_running'] else 'остановлен'}\n"
-        f"└ Цена: {gofish_price_range_label()}\n"
-        f"└ Публикация: {_age_label('gofish')}\n"
-        f"└ Ключи: {_keywords_label('gofish')}\n\n"
-        f"🇬🇧 <b>Depop</b>\n"
-        f"└ Статус: {'работает' if state['depop_running'] else 'остановлен'}\n"
-        f"└ Цена: {depop_price_range_label()}\n"
-        f"└ Новые товары: первый цикл только запоминает\n"
-        f"└ Ключи: {_keywords_label('depop')}\n\n"
-        f"🌍 <b>Vinted</b>\n"
-        f"└ Статус: {'работает' if state['vinted_running'] else 'остановлен'}\n"
-        f"└ Цена: {vinted_price_range_label()}\n"
-        f"└ Публикация: {_age_label('vinted')}\n"
-        f"└ Ключи: {_keywords_label('vinted')}"
+        "Choose a marketplace for monitoring\n\n"
+        f"<b>Mercari.jp</b>\n"
+        f"- Status: {'running' if state['mercari_running'] else 'stopped'}\n"
+        f"- Price: {mercari_price_range_label()}\n"
+        f"- Age: {_age_label('mercari')}\n"
+        f"- Keywords: {_keywords_label('mercari')}\n\n"
+        f"<b>FruitsFamily</b>\n"
+        f"- Status: {'running' if state['fruits_running'] else 'stopped'}\n"
+        f"- Price: {fruits_price_range_label()}\n"
+        f"- Age: {_age_label('fruits')}\n"
+        f"- Keywords: {_keywords_label('fruits')}\n\n"
+        f"<b>Grailed</b>\n"
+        f"- Status: {'running' if state['grailed_running'] else 'stopped'}\n"
+        f"- Price: {grailed_price_range_label()}\n"
+        f"- Age: {_age_label('grailed')}\n"
+        f"- Keywords: {_keywords_label('grailed')}\n\n"
+        f"<b>Vinted</b>\n"
+        f"- Status: {'running' if state['vinted_running'] else 'stopped'}\n"
+        f"- Price: {vinted_price_range_label()}\n"
+        f"- Age: {_age_label('vinted')}\n"
+        f"- Keywords: {_keywords_label('vinted')}"
     )
-
 
 def main_kb():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🇯🇵 Mercari.jp", callback_data="pick_mercari"),
-            InlineKeyboardButton("🇰🇷 FruitsFamily", callback_data="pick_fruits"),
+            InlineKeyboardButton("Mercari.jp", callback_data="pick_mercari"),
+            InlineKeyboardButton("FruitsFamily", callback_data="pick_fruits"),
         ],
         [
-            InlineKeyboardButton("🌍 Vinted", callback_data="pick_vinted"),
-            InlineKeyboardButton("🐟 Gofish", callback_data="pick_gofish"),
+            InlineKeyboardButton("Vinted", callback_data="pick_vinted"),
+            InlineKeyboardButton("Grailed", callback_data="pick_grailed"),
         ],
         [
-            InlineKeyboardButton("🇬🇧 Depop", callback_data="pick_depop"),
-        ],
-        [
-            InlineKeyboardButton("👕 Бренды", callback_data="brands_0"),
-            InlineKeyboardButton("ⓘ Статус", callback_data="status"),
+            InlineKeyboardButton("Brands", callback_data="brands_0"),
+            InlineKeyboardButton("Status", callback_data="status"),
         ],
     ])
-
 
 def quick_kb():
     return ReplyKeyboardMarkup(
@@ -172,7 +147,7 @@ def quick_kb():
             ["Меню", "Статус"],
             ["⏹ Остановить"],
             ["Mercari.jp", "FruitsFamily", "Vinted"],
-            ["Gofish", "Depop"],
+            ["Grailed"],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -181,14 +156,14 @@ def quick_kb():
 
 def _running_markets():
     return [
-        market for market in ("mercari", "fruits", "vinted", "gofish", "depop")
+        market for market in ("mercari", "fruits", "vinted", "grailed")
         if state.get(f"{market}_running")
     ]
 
 
 def _stop_all_markets():
     stopped = _running_markets()
-    for market in ("mercari", "fruits", "vinted", "gofish", "depop"):
+    for market in ("mercari", "fruits", "vinted", "grailed"):
         state[f"{market}_running"] = False
     return stopped
 
@@ -208,10 +183,8 @@ def market_text(market=None):
         area = "jp.mercari.com"
     elif market == "fruits":
         area = "fruitsfamily.com"
-    elif market == "gofish":
-        area = "gofish.co.kr"
-    elif market == "depop":
-        area = "depop.com"
+    elif market == "grailed":
+        area = "grailed.com"
     else:
         area = " ".join(f".{r}" for r in VINTED_REGIONS)
     last = datetime.now(MSK_TZ).strftime("%H:%M МСК")
@@ -280,8 +253,7 @@ def status_text():
         "<b>Vinted</b> online\n"
         "<b>Mercari</b> online\n"
         "<b>FruitsFamily</b> online\n"
-        "<b>Gofish</b> online\n"
-        "<b>Depop</b> online"
+        "<b>Grailed</b> online"
     )
 
 
@@ -405,33 +377,47 @@ def brands_kb(page=0):
     return InlineKeyboardMarkup(rows)
 
 
+def _run_market_loop(loop_func, app, user_id):
+    set_current_user(user_id)
+    loop_func(app)
+
+
 def _start_market_thread(market):
+    user_id = current_user_id()
     if market == "vinted":
-        threading.Thread(target=vinted_loop, args=(bot_app,), daemon=True).start()
+        threading.Thread(target=_run_market_loop, args=(vinted_loop, bot_app, user_id), daemon=True).start()
     elif market == "mercari":
-        threading.Thread(target=mercari_loop, args=(bot_app,), daemon=True).start()
+        threading.Thread(target=_run_market_loop, args=(mercari_loop, bot_app, user_id), daemon=True).start()
     elif market == "fruits":
         if fruits_loop is None:
             log.error("FruitsFamily не запущен: не удалось импортировать fruits_loop из fruits_platform.py")
             return
-        threading.Thread(target=fruits_loop, args=(bot_app,), daemon=True).start()
-    elif market == "gofish":
-        if gofish_loop is None:
-            log.error("Gofish не запущен: нет файла goofish_platform.py или gofish_platform.py в /app")
+        threading.Thread(target=_run_market_loop, args=(fruits_loop, bot_app, user_id), daemon=True).start()
+    elif market == "grailed":
+        if grailed_loop is None:
+            log.error("Grailed не запущен: не удалось импортировать grailed_loop")
+            state["grailed_running"] = False
             return
-        threading.Thread(target=gofish_loop, args=(bot_app,), daemon=True).start()
-    elif market == "depop":
-        if depop_loop is None:
-            log.error("Depop не запущен: не удалось импортировать depop_loop")
-            state["depop_running"] = False
-            return
-        state["depop_bootstrap_done"] = False
-        threading.Thread(target=depop_loop, args=(bot_app,), daemon=True).start()
+        state["grailed_bootstrap_done"] = False
+        threading.Thread(target=_run_market_loop, args=(grailed_loop, bot_app, user_id), daemon=True).start()
 
 
 def _update_user_id(update):
     user = getattr(update, "effective_user", None)
     return user.id if user else None
+
+
+def _activate_update_user(update):
+    user_id = _update_user_id(update)
+    chat = getattr(update, "effective_chat", None)
+    chat_id = chat.id if chat else None
+    return set_current_user(user_id, chat_id)
+
+
+def _activate_callback_user(q):
+    user_id = q.from_user.id if q and q.from_user else None
+    chat_id = q.message.chat_id if q and q.message else None
+    return set_current_user(user_id, chat_id)
 
 
 async def _send_main_menu(update: Update, first_line="Панель команд включена"):
@@ -486,6 +472,7 @@ async def _ensure_callback_access(q):
 
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    _activate_update_user(update)
     if not is_authorized(_update_user_id(update)):
         await _send_access_prompt(update, START_BRANDING_TEXT)
         return
@@ -493,6 +480,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    _activate_update_user(update)
     if not await _ensure_message_access(update):
         return
     register_chat_id(update.effective_chat.id)
@@ -501,6 +489,7 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_stop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    _activate_update_user(update)
     if not await _ensure_message_access(update):
         return
     register_chat_id(update.effective_chat.id)
@@ -514,6 +503,7 @@ async def cmd_stop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_access(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    _activate_update_user(update)
     if is_authorized(_update_user_id(update)):
         await _send_main_menu(update)
         return
@@ -527,6 +517,7 @@ async def cmd_access(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
+    _activate_callback_user(q)
     if not await _ensure_callback_access(q):
         return
     register_chat_id(q.message.chat_id)
@@ -543,13 +534,13 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await edit(main_text(), main_kb())
         return
 
-    if data in ("pick_vinted", "pick_mercari", "pick_fruits", "pick_gofish", "pick_depop"):
+    if data in ("pick_vinted", "pick_mercari", "pick_fruits", "pick_grailed"):
         market = data.split("_", 1)[1]
         state["current_market"] = market
         await edit(market_text(market), market_kb(market))
         return
 
-    if data in ("toggle_vinted", "toggle_mercari", "toggle_fruits", "toggle_gofish", "toggle_depop"):
+    if data in ("toggle_vinted", "toggle_mercari", "toggle_fruits", "toggle_grailed"):
         market = data.split("_", 1)[1]
         state["current_market"] = market
         running_key = f"{market}_running"
@@ -564,8 +555,8 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await edit(market_text(market), market_kb(market))
         return
 
-    if data in ("filters_vinted", "filters_mercari", "filters_fruits", "filters_gofish", "filters_depop", "vinted_settings", "mercari_settings", "fruits_settings", "gofish_settings", "depop_settings"):
-        market = "depop" if "depop" in data else ("gofish" if "gofish" in data else ("fruits" if "fruits" in data else ("mercari" if "mercari" in data else "vinted")))
+    if data in ("filters_vinted", "filters_mercari", "filters_fruits", "filters_grailed", "vinted_settings", "mercari_settings", "fruits_settings", "grailed_settings"):
+        market = "grailed" if "grailed" in data else ("fruits" if "fruits" in data else ("mercari" if "mercari" in data else "vinted"))
         state["current_market"] = market
         await edit(filters_text(market), filters_kb(market))
         return
@@ -602,26 +593,14 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             filters_kb("fruits"),
         )
         return
-
-    if data in ("price_gofish", "gset_min", "gset_max"):
-        state["awaiting"] = "gofish_price_range"
-        state["current_market"] = "gofish"
+    if data == "price_grailed":
+        state["awaiting"] = "grailed_price_range"
+        state["current_market"] = "grailed"
         await edit(
-            "Введи диапазон цены Gofish (₩)\n"
-            f"Сейчас: <b>{gofish_price_range_label()}</b>\n\n"
-            "Например: <code>10000-1000000</code>",
-            filters_kb("gofish"),
-        )
-        return
-
-    if data in ("price_depop", "dset_min", "dset_max"):
-        state["awaiting"] = "depop_price_range"
-        state["current_market"] = "depop"
-        await edit(
-            "Введи диапазон цены Depop (€)\n"
-            f"Сейчас: <b>{depop_price_range_label()}</b>\n\n"
-            "Например: <code>10-500</code>",
-            filters_kb("depop"),
+            "Enter Grailed price range ($)\n"
+            f"Current: <b>{grailed_price_range_label()}</b>\n\n"
+            "Example: <code>10-500</code>",
+            filters_kb("grailed"),
         )
         return
 
@@ -657,29 +636,18 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             filters_kb("fruits"),
         )
         return
-
-    if data == "age_gofish":
-        state["awaiting"] = "gofish_age_range"
-        state["current_market"] = "gofish"
+    if data == "age_grailed":
+        state["awaiting"] = "grailed_age_range"
+        state["current_market"] = "grailed"
         await edit(
-            "Введи время публикации Gofish в часах\n"
-            f"Сейчас: <b>{_age_label('gofish')}</b>\n\n"
-            "Например: <code>24</code> или <code>6-48</code>",
-            filters_kb("gofish"),
+            "Enter Grailed publish age in hours\n"
+            f"Current: <b>{_age_label('grailed')}</b>\n\n"
+            "Example: <code>24</code> or <code>6-48</code>",
+            filters_kb("grailed"),
         )
         return
 
-    if data == "age_depop":
-        state["awaiting"] = "depop_age_range"
-        state["current_market"] = "depop"
-        await edit(
-            "Depop не всегда показывает точное время публикации. Мониторинг работает по новым товарам: первый цикл запоминает, дальше шлет новые.\n\n"
-            f"Текущий фильтр: <b>{_age_label('depop')}</b>",
-            filters_kb("depop"),
-        )
-        return
-
-    if data in ("keywords_vinted", "keywords_mercari", "keywords_fruits", "keywords_gofish", "keywords_depop"):
+    if data in ("keywords_vinted", "keywords_mercari", "keywords_fruits", "keywords_grailed"):
         market = data.split("_", 1)[1]
         state["awaiting"] = f"{market}_keywords"
         state["current_market"] = market
@@ -763,6 +731,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    _activate_update_user(update)
     raw_text = update.message.text.strip()
     button_text = raw_text.lower()
 
@@ -810,11 +779,10 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         state["current_market"] = "vinted"
         await update.message.reply_text(market_text("vinted"), reply_markup=market_kb("vinted"), parse_mode="HTML")
         return
-
-    if button_text in ("depop", "депоп"):
+    if button_text in ("grailed", "грейлд"):
         state["awaiting"] = None
-        state["current_market"] = "depop"
-        await update.message.reply_text(market_text("depop"), reply_markup=market_kb("depop"), parse_mode="HTML")
+        state["current_market"] = "grailed"
+        await update.message.reply_text(market_text("grailed"), reply_markup=market_kb("grailed"), parse_mode="HTML")
         return
 
     text = raw_text.replace(",", ".")
@@ -831,8 +799,8 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if aw in ("vinted_keywords", "mercari_keywords", "fruits_keywords", "gofish_keywords", "depop_keywords"):
-        market = "depop" if aw == "depop_keywords" else ("gofish" if aw == "gofish_keywords" else ("fruits" if aw == "fruits_keywords" else ("mercari" if aw == "mercari_keywords" else "vinted")))
+    if aw in ("vinted_keywords", "mercari_keywords", "fruits_keywords", "grailed_keywords"):
+        market = "grailed" if aw == "grailed_keywords" else ("fruits" if aw == "fruits_keywords" else ("mercari" if aw == "mercari_keywords" else "vinted"))
         keywords = parse_keywords(raw_text)
         state[f"{market}_keywords"] = keywords
         state["awaiting"] = None
@@ -844,10 +812,10 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if aw in ("vinted_price_range", "mercari_price_range", "fruits_price_range", "gofish_price_range", "depop_price_range"):
-        market = "depop" if aw == "depop_price_range" else ("gofish" if aw == "gofish_price_range" else ("fruits" if aw == "fruits_price_range" else ("mercari" if aw == "mercari_price_range" else "vinted")))
+    if aw in ("vinted_price_range", "mercari_price_range", "fruits_price_range", "grailed_price_range"):
+        market = "grailed" if aw == "grailed_price_range" else ("fruits" if aw == "fruits_price_range" else ("mercari" if aw == "mercari_price_range" else "vinted"))
         try:
-            min_price, max_price = parse_price_range(text, is_int=(market in ("mercari", "fruits", "gofish")))
+            min_price, max_price = parse_price_range(text, is_int=(market in ("mercari", "fruits")))
             state[f"{market}_min"] = min_price
             state[f"{market}_max"] = max_price
             state["awaiting"] = None
@@ -858,12 +826,12 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=filters_kb(market),
             )
         except ValueError:
-            example = "10000-1000000" if market in ("fruits", "gofish") else ("1000-50000" if market == "mercari" else "10-500")
+            example = "10000-1000000" if market == "fruits" else ("1000-50000" if market == "mercari" else "10-500")
             await update.message.reply_text(f"Нужен диапазон цены. Например: {example}", reply_markup=filters_kb(market))
         return
 
-    if aw in ("vinted_age", "vinted_age_range", "mercari_age_range", "fruits_age_range", "gofish_age_range", "depop_age_range"):
-        market = "depop" if aw == "depop_age_range" else ("gofish" if aw == "gofish_age_range" else ("fruits" if aw == "fruits_age_range" else ("mercari" if aw == "mercari_age_range" else "vinted")))
+    if aw in ("vinted_age", "vinted_age_range", "mercari_age_range", "fruits_age_range", "grailed_age_range"):
+        market = "grailed" if aw == "grailed_age_range" else ("fruits" if aw == "fruits_age_range" else ("mercari" if aw == "mercari_age_range" else "vinted"))
         try:
             min_age, max_age = parse_age_range(text)
             state[f"{market}_min_age_hours"] = min_age
@@ -911,6 +879,15 @@ async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE):
         log.error("Telegram handler failed without exception details")
 
 
+def _autosave(handler):
+    async def wrapped(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        try:
+            return await handler(update, ctx)
+        finally:
+            save_current_user_state()
+    return wrapped
+
+
 def main():
     global bot_app
     if not BOT_TOKEN:
@@ -939,12 +916,12 @@ def main():
         .post_init(setup_bot_commands)
         .build()
     )
-    bot_app.add_handler(CommandHandler(["start", "menu"], cmd_start))
-    bot_app.add_handler(CommandHandler("status", cmd_status))
-    bot_app.add_handler(CommandHandler("stop", cmd_stop))
-    bot_app.add_handler(CommandHandler("access", cmd_access))
-    bot_app.add_handler(CallbackQueryHandler(on_button))
-    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    bot_app.add_handler(CommandHandler(["start", "menu"], _autosave(cmd_start)))
+    bot_app.add_handler(CommandHandler("status", _autosave(cmd_status)))
+    bot_app.add_handler(CommandHandler("stop", _autosave(cmd_stop)))
+    bot_app.add_handler(CommandHandler("access", _autosave(cmd_access)))
+    bot_app.add_handler(CallbackQueryHandler(_autosave(on_button)))
+    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _autosave(on_text)))
     bot_app.add_error_handler(on_error)
     bot_app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=30)
 
