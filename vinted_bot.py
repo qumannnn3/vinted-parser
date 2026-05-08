@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import threading
 import time
@@ -32,6 +33,7 @@ from shared import (
     parse_keywords,
     parse_price_range,
     register_chat_id,
+    set_telegram_loop,
     state,
     vinted_price_range_label,
 )
@@ -759,7 +761,7 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if aw in ("vinted_keywords", "mercari_keywords", "fruits_keywords"):
+    if aw in ("vinted_keywords", "mercari_keywords", "fruits_keywords", "gofish_keywords"):
         market = "gofish" if aw == "gofish_keywords" else ("fruits" if aw == "fruits_keywords" else ("mercari" if aw == "mercari_keywords" else "vinted"))
         keywords = parse_keywords(raw_text)
         state[f"{market}_keywords"] = keywords
@@ -814,6 +816,7 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def setup_bot_commands(app):
+    set_telegram_loop(asyncio.get_running_loop())
     commands = [
         BotCommand("start", "Запустить бота"),
         BotCommand("menu", "Главное меню"),
@@ -821,8 +824,21 @@ async def setup_bot_commands(app):
         BotCommand("stop", "Остановить парсинг"),
         BotCommand("access", "Ввести код доступа"),
     ]
-    await app.bot.set_my_commands(commands)
-    await app.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+    try:
+        await app.bot.set_my_commands(commands)
+        await app.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+    except Exception as e:
+        log.warning("Telegram command setup failed, continuing startup: %s", e)
+
+
+async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE):
+    if ctx.error:
+        log.error(
+            "Telegram handler failed",
+            exc_info=(type(ctx.error), ctx.error, ctx.error.__traceback__),
+        )
+    else:
+        log.error("Telegram handler failed without exception details")
 
 
 def main():
@@ -859,6 +875,7 @@ def main():
     bot_app.add_handler(CommandHandler("access", cmd_access))
     bot_app.add_handler(CallbackQueryHandler(on_button))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    bot_app.add_error_handler(on_error)
     bot_app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=30)
 
 
@@ -874,8 +891,8 @@ if __name__ == "__main__":
             if "Event loop is closed" in str(e):
                 log.info("Event loop closed during shutdown, exiting")
                 break
-            log.error("Бот упал: %s. Перезапуск через 15с...", e)
+            log.exception("Бот упал: %s. Перезапуск через 15с...", e)
             time.sleep(15)
         except Exception as e:
-            log.error("Бот упал: %s. Перезапуск через 15с...", e)
+            log.exception("Бот упал: %s. Перезапуск через 15с...", e)
             time.sleep(15)
