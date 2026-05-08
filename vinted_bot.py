@@ -165,6 +165,7 @@ def _stop_all_markets():
     stopped = _running_markets()
     for market in ("mercari", "fruits", "vinted", "grailed"):
         state[f"{market}_running"] = False
+        state[f"{market}_run_id"] = state.get(f"{market}_run_id", 0) + 1
     return stopped
 
 
@@ -545,10 +546,12 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         running_key = f"{market}_running"
         if state[running_key]:
             state[running_key] = False
+            state[f"{market}_run_id"] = state.get(f"{market}_run_id", 0) + 1
         else:
             if not state["active_brands"]:
                 await q.answer("Выбери хотя бы один бренд", show_alert=True)
                 return
+            state[f"{market}_run_id"] = state.get(f"{market}_run_id", 0) + 1
             state[running_key] = True
             _start_market_thread(market)
         await edit(market_text(market), market_kb(market))
