@@ -229,7 +229,6 @@ def _new_state():
     "grailed_interval": 300,
     "grailed_seen": set(),
     "grailed_stats": {"found": 0, "cycles": 0},
-    "grailed_bootstrap_done": False,
     }
 
 
