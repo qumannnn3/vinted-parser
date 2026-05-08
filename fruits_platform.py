@@ -82,6 +82,32 @@ def _slug(text):
     return value.strip("-") or "item"
 
 
+def _base36(value):
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return str(value or "").strip()
+    if n <= 0:
+        return ""
+    chars = "0123456789abcdefghijklmnopqrstuvwxyz"
+    result = ""
+    while n:
+        n, rem = divmod(n, 36)
+        result = chars[rem] + result
+    return result
+
+
+def _product_url(item_id, title, external_url=None):
+    if external_url:
+        url = str(external_url)
+        if url.startswith("http://") or url.startswith("https://"):
+            return url
+        if url.startswith("/"):
+            return f"{FRUITS_HOME_URL}{url}"
+    short_id = _base36(item_id)
+    return f"{FRUITS_HOME_URL}/product/{short_id}" if short_id else FRUITS_HOME_URL
+
+
 def _text_blob(item):
     return " ".join(
         str(item.get(key) or "")
@@ -175,7 +201,7 @@ def _normalize_fruits_item(item):
         "size": item.get("size") or "",
         "condition": item.get("condition") or "",
         "like_count": item.get("like_count") or 0,
-        "url": f"{FRUITS_HOME_URL}/product/{item_id}/{_slug(title)}" if item_id else FRUITS_HOME_URL,
+        "url": _product_url(item_id, title, item.get("external_url")),
     }
 
 
