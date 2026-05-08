@@ -398,7 +398,6 @@ def _start_market_thread(market):
             log.error("Grailed не запущен: не удалось импортировать grailed_loop")
             state["grailed_running"] = False
             return
-        state["grailed_bootstrap_done"] = False
         threading.Thread(target=_run_market_loop, args=(grailed_loop, bot_app, user_id), daemon=True).start()
 
 
