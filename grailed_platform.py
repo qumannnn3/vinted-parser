@@ -117,7 +117,7 @@ def _normalize_item(item):
         "size": item.get("size") or item.get("category_size") or "",
         "condition": item.get("condition") or "",
         "category": item.get("category_path") or item.get("category") or "",
-        "created_at": item.get("bumped_at") or item.get("created_at") or item.get("created_at_i"),
+        "created_at": item.get("created_at") or item.get("created_at_i") or item.get("bumped_at"),
         "image": _item_image(item),
         "url": _item_url(item),
         "_raw": item,
@@ -126,6 +126,14 @@ def _normalize_item(item):
 
 def _params(query, price_min, price_max, limit):
     query = quote_plus(str(query or ""))
+    min_created_at = int(time.time() - float(state["grailed_max_age_hours"]) * 3600)
+    max_created_at = int(time.time() - float(state["grailed_min_age_hours"]) * 3600)
+    numeric_filters = [
+        f'"price_i>={float(price_min):g}"',
+        f'"price_i<={float(price_max):g}"',
+        f'"created_at_i>={min_created_at}"',
+        f'"created_at_i<={max_created_at}"',
+    ]
     return (
         "analytics=true"
         "&clickAnalytics=true"
@@ -136,7 +144,7 @@ def _params(query, price_min, price_max, limit):
         "&filters="
         "&getRankingInfo=true"
         f"&hitsPerPage={int(limit)}"
-        f'&numericFilters=["price_i>={float(price_min):g}","price_i<={float(price_max):g}"]'
+        f"&numericFilters=[{','.join(numeric_filters)}]"
         "&page=0"
         "&personalizationImpact=0"
         f"&query={query}"
