@@ -7,7 +7,11 @@ from datetime import datetime
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonCommands, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
-from fruits_platform import fruits_loop
+try:
+    from fruits_platform import fruits_loop
+except (ImportError, ModuleNotFoundError) as e:
+    logging.getLogger("parser").error("FruitsFamily не загружен: %s", e)
+    fruits_loop = None
 try:
     from goofish_platform import gofish_loop
 except ModuleNotFoundError:
@@ -379,6 +383,9 @@ def _start_market_thread(market):
     elif market == "mercari":
         threading.Thread(target=mercari_loop, args=(bot_app,), daemon=True).start()
     elif market == "fruits":
+        if fruits_loop is None:
+            log.error("FruitsFamily не запущен: не удалось импортировать fruits_loop из fruits_platform.py")
+            return
         threading.Thread(target=fruits_loop, args=(bot_app,), daemon=True).start()
     elif market == "gofish":
         if gofish_loop is None:
