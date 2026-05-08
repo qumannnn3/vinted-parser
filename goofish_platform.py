@@ -397,6 +397,10 @@ def _mtop_search(query, price_min=None, price_max=None):
 
 
 def fetch_gofish(query, price_min=None, price_max=None):
+    if not GOOFISH_COOKIE:
+        state["gofish_running"] = False
+        return []
+
     items = _mtop_search(query, price_min=price_min, price_max=price_max)
     min_price = int(state["gofish_min"] if price_min is None else price_min)
     max_price = int(state["gofish_max"] if price_max is None else price_max)
@@ -513,6 +517,11 @@ async def _send_gofish_item(bot_app, image, msg):
 
 
 def gofish_loop(bot_app):
+    if not GOOFISH_COOKIE:
+        log.warning("Goofish отключен: без GOOFISH_COOKIE сайт не отдает поисковый токен _m_h5_tk")
+        state["gofish_running"] = False
+        return
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     log.info("Goofish мониторинг запущен")
