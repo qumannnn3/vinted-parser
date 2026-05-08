@@ -3,6 +3,7 @@ import html
 import json
 import os
 import random
+import threading
 import time
 from urllib.parse import quote_plus
 
@@ -36,14 +37,21 @@ GRAILED_SEARCH_URL = (
     f"https://{GRAILED_ALGOLIA_APP_ID.lower()}-1.algolianet.com/1/indexes/*/queries"
     "?x-algolia-agent=Algolia%20for%20JavaScript%20(4.14.3)%3B%20Browser%3B%20JS%20Helper%20(3.11.3)"
 )
+GRAILED_MARKET_PRICE_MAX = int(os.environ.get("GRAILED_MARKET_PRICE_MAX", "100000"))
+GRAILED_MIN_MARKET_SAMPLES = int(os.environ.get("GRAILED_MIN_MARKET_SAMPLES", "1"))
+GRAILED_MAX_MARKET_RATIO = float(os.environ.get("GRAILED_MAX_MARKET_RATIO", "0.90"))
 
 
-GRAILED_KIND_WORDS = [
-    "shirt", "t-shirt", "tee", "hoodie", "sweatshirt", "sweater", "knit",
-    "jacket", "coat", "pants", "jeans", "denim", "trousers", "shorts",
-    "skirt", "dress", "sneaker", "sneakers", "shoe", "shoes", "boots",
-    "bag", "wallet", "belt", "hat", "cap", "beanie", "glasses",
+GRAILED_KIND_GROUPS = [
+    ("shoes", ["sneaker", "sneakers", "shoe", "shoes", "boots", "loafer", "loafers", "sandals"]),
+    ("bag", ["bag", "bags", "backpack", "wallet", "shoulder bag", "tote", "pouch"]),
+    ("tops", ["shirt", "t-shirt", "tee", "hoodie", "sweatshirt", "sweater", "knit", "cardigan", "polo"]),
+    ("outerwear", ["jacket", "coat", "vest", "parka", "down jacket", "windbreaker", "bomber"]),
+    ("bottoms", ["pants", "jeans", "denim", "trousers", "shorts", "skirt", "cargo", "slacks"]),
+    ("dress", ["dress"]),
+    ("accessory", ["belt", "hat", "cap", "beanie", "glasses", "sunglasses", "scarf", "gloves"]),
 ]
+GRAILED_KIND_WORDS = [word for _, words in GRAILED_KIND_GROUPS for word in words]
 
 
 def _headers():
@@ -93,6 +101,19 @@ def is_relevant_grailed_item(item, brand):
     return _has_any_term(text, GRAILED_KIND_WORDS) or bool(item.get("size")) or bool(DEEP_FASHION_SIZE_PATTERN.search(text))
 
 
+def grailed_fashion_kind(item):
+    raw = item.get("_raw", item) if isinstance(item, dict) else item
+    text = _text_blob(raw)
+    if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
+        return ""
+    for kind, words in GRAILED_KIND_GROUPS:
+        if _has_any_term(text, words):
+            return kind
+    if DEEP_FASHION_SIZE_PATTERN.search(text):
+        return "clothing"
+    return ""
+
+
 def _item_url(item):
     item_id = item.get("id") or item.get("objectID")
     slug = str(item.get("slug") or "").strip("/")
@@ -124,16 +145,19 @@ def _normalize_item(item):
     }
 
 
-def _params(query, price_min, price_max, limit):
+def _params(query, price_min, price_max, limit, use_age_filter=True):
     query = quote_plus(str(query or ""))
-    min_created_at = int(time.time() - float(state["grailed_max_age_hours"]) * 3600)
-    max_created_at = int(time.time() - float(state["grailed_min_age_hours"]) * 3600)
     numeric_filters = [
         f'"price_i>={float(price_min):g}"',
         f'"price_i<={float(price_max):g}"',
-        f'"created_at_i>={min_created_at}"',
-        f'"created_at_i<={max_created_at}"',
     ]
+    if use_age_filter:
+        min_created_at = int(time.time() - float(state["grailed_max_age_hours"]) * 3600)
+        max_created_at = int(time.time() - float(state["grailed_min_age_hours"]) * 3600)
+        numeric_filters.extend([
+            f'"created_at_i>={min_created_at}"',
+            f'"created_at_i<={max_created_at}"',
+        ])
     return (
         "analytics=true"
         "&clickAnalytics=true"
@@ -152,12 +176,14 @@ def _params(query, price_min, price_max, limit):
     )
 
 
-def fetch_grailed(query, limit=80):
+def fetch_grailed(query, limit=80, price_min=None, price_max=None, use_age_filter=True):
+    price_min = state["grailed_min"] if price_min is None else price_min
+    price_max = state["grailed_max"] if price_max is None else price_max
     payload = {
         "requests": [
             {
                 "indexName": GRAILED_INDEX,
-                "params": _params(query, state["grailed_min"], state["grailed_max"], limit),
+                "params": _params(query, price_min, price_max, limit, use_age_filter=use_age_filter),
             }
         ]
     }
@@ -184,7 +210,24 @@ def fetch_grailed(query, limit=80):
         return []
 
 
-def format_grailed_message(item, title_ru):
+def grailed_market_price_usd(items, target_item, brand, keyword=None):
+    from market_price import calculate_market_price
+
+    return calculate_market_price(
+        items,
+        target_item,
+        price_getter=lambda item: item.get("price", 0),
+        id_getter=lambda item: item.get("id"),
+        item_filter=lambda item: (
+            grailed_matches_brand(item.get("_raw", item), brand)
+            and (not keyword or grailed_matches_keyword(item.get("_raw", item), keyword))
+        ),
+        kind_getter=grailed_fashion_kind,
+        min_samples=GRAILED_MIN_MARKET_SAMPLES,
+    )
+
+
+def format_grailed_message(item, title_ru, market_line=""):
     title_safe = html.escape(str(title_ru or item.get("title") or "Grailed item"))
     link_safe = html.escape(str(item.get("url") or GRAILED_HOME_URL), quote=True)
     details = [str(x) for x in (item.get("brand"), item.get("category"), item.get("size"), item.get("condition")) if x]
@@ -196,18 +239,24 @@ def format_grailed_message(item, title_ru):
         f"<b>{title_safe}</b>\n"
         f"{meta}"
         f"<b>Price:</b> ${price:g}\n"
+        f"{market_line}"
         f"<b>Published:</b> {format_msk_timestamp(item.get('created_at'))}\n\n"
         f"<a href='{link_safe}'>Open listing</a>"
     )
 
 
 async def _send_grailed_item(bot_app, image, msg):
+    run_id = getattr(_run_local, "run_id", state.get("grailed_run_id", 0))
+    if not _is_run_id_current(run_id):
+        return
     chat_ids = notification_chat_ids()
     if not chat_ids or not bot_app:
         return
 
     async def send_all():
         for chat_id in chat_ids:
+            if not _is_run_id_current(run_id):
+                return
             if image:
                 try:
                     await bot_app.bot.send_photo(chat_id=chat_id, photo=image, caption=msg, parse_mode="HTML")
@@ -227,23 +276,55 @@ async def _send_grailed_item(bot_app, image, msg):
     run_telegram_coroutine(send_all())
 
 
+_run_local = threading.local()
+
+
+def _is_current_run():
+    return _is_run_id_current(getattr(_run_local, "run_id", None))
+
+
+def _is_run_id_current(run_id):
+    return state["grailed_running"] and run_id is not None and state.get("grailed_run_id", 0) == run_id
+
+
+def _sleep_while_running(seconds):
+    end = time.time() + float(seconds)
+    while _is_current_run() and time.time() < end:
+        time.sleep(min(1.0, end - time.time()))
+
+
 def grailed_loop(bot_app):
+    _run_local.run_id = state.get("grailed_run_id", 0)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     log.info("Grailed мониторинг запущен")
 
-    while state["grailed_running"]:
+    while _is_current_run():
         brands = list(state["active_brands"] or ALL_BRANDS)
         random.shuffle(brands)
         state["grailed_stats"]["cycles"] += 1
 
         for brand in brands:
-            if not state["grailed_running"]:
+            if not _is_current_run():
                 break
             for query, keyword in market_search_queries(brand, "grailed"):
-                if not state["grailed_running"]:
+                if not _is_current_run():
                     break
-                for item in fetch_grailed(query):
+                items = fetch_grailed(query)
+                if not _is_current_run():
+                    break
+                market_items = fetch_grailed(
+                    query,
+                    limit=120,
+                    price_min=1,
+                    price_max=GRAILED_MARKET_PRICE_MAX,
+                    use_age_filter=False,
+                ) or items
+                if not _is_current_run():
+                    break
+                for item in items:
+                    if not _is_current_run():
+                        break
                     iid = item.get("id")
                     if not iid or iid in state["grailed_seen"]:
                         continue
@@ -261,16 +342,35 @@ def grailed_loop(bot_app):
                         age_label = f"{age_hours:.1f}h" if age_hours is not None else "unknown"
                         log.info("SKIP Grailed age %s: %s", age_label, item.get("title", "?")[:60])
                         continue
+                    market = grailed_market_price_usd(market_items, item, brand, keyword)
+                    if not market:
+                        log.info("SKIP Grailed no market sample: %s", item.get("title", "?")[:60])
+                        continue
+                    market_usd = float(market["price"])
+                    market_count = int(market["count"])
+                    price = float(item.get("price") or 0)
+                    if price > market_usd * GRAILED_MAX_MARKET_RATIO:
+                        log.info(
+                            "SKIP Grailed not under market %.0f/%.0f: %s",
+                            price,
+                            market_usd,
+                            item.get("title", "?")[:60],
+                        )
+                        continue
+                    discount = max(0, round((1 - price / market_usd) * 100))
+                    market_line = f"<b>Market:</b> ~${market_usd:.0f}, below by {discount}% · {market_count} comps\n"
 
+                    if not _is_current_run():
+                        break
                     title_ru = translate_to_ru(item.get("title", ""))
-                    msg = format_grailed_message(item, title_ru)
+                    msg = format_grailed_message(item, title_ru, market_line)
                     state["grailed_seen"].add(iid)
                     state["grailed_stats"]["found"] += 1
                     log.info("FOUND Grailed: %s - $%s", item.get("title", "?"), item.get("price"))
                     loop.run_until_complete(_send_grailed_item(bot_app, item.get("image"), msg))
 
-                time.sleep(random.uniform(8, 15))
+                _sleep_while_running(random.uniform(8, 15))
 
-        if state["grailed_running"]:
-            time.sleep(state["grailed_interval"])
+        if _is_current_run():
+            _sleep_while_running(state["grailed_interval"])
     loop.close()
