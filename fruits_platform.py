@@ -125,7 +125,8 @@ def fruits_matches_keyword(item, keyword):
 
 
 def fruits_matches_brand(item, brand):
-    return _has_any_term(_text_blob(item), brand_match_terms(brand))
+    brand_text = str(item.get("brand") or "").lower()
+    return bool(brand_text and _has_any_term(brand_text, brand_match_terms(brand)))
 
 
 def is_relevant_fruits_item(item, brand):
