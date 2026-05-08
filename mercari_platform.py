@@ -276,12 +276,16 @@ def format_mercari_message(item, name, name_ru, price_str, link):
 
 
 async def _send_mercari_item(bot_app, thumb, msg):
+    if not state["mercari_running"]:
+        return
     chat_ids = notification_chat_ids()
     if not chat_ids or not bot_app:
         return
 
     async def send_all():
         for chat_id in chat_ids:
+            if not state["mercari_running"]:
+                return
             if thumb:
                 try:
                     await bot_app.bot.send_photo(
