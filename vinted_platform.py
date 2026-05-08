@@ -417,6 +417,8 @@ def download_vinted_photo(domain, photo_url):
 
 
 async def _send_vinted_item(bot_app, photo_data, msg):
+    if not state["vinted_running"]:
+        return
     chat_ids = notification_chat_ids()
 
     if not chat_ids or not bot_app:
@@ -424,6 +426,8 @@ async def _send_vinted_item(bot_app, photo_data, msg):
 
     async def send_all():
         for chat_id in chat_ids:
+            if not state["vinted_running"]:
+                return
             if photo_data:
                 try:
                     photo_file = BytesIO(photo_data)
