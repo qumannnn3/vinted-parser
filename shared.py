@@ -4,7 +4,13 @@ import re
 import time
 import asyncio
 import concurrent.futures
+import contextvars
+import copy
+import json
+import threading
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from collections.abc import MutableMapping
 
 import requests
 
@@ -161,7 +167,22 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
 ]
 
-state = {
+def _user_state_file_path():
+    default_path = "/data/user_profiles.json" if Path("/data").exists() else "user_profiles.json"
+    raw = os.environ.get("BOT_USER_STATE_FILE", default_path)
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    return Path(__file__).resolve().parent / path
+
+
+USER_STATE_FILE = _user_state_file_path()
+_current_user_id = contextvars.ContextVar("current_user_id", default=None)
+_profiles_lock = threading.RLock()
+
+
+def _new_state():
+    return {
     "chat_id": None,
     "chat_ids": set(),
     "awaiting": None,
@@ -199,36 +220,175 @@ state = {
     "fruits_interval": 300,
     "fruits_seen": set(),
     "fruits_stats": {"found": 0, "cycles": 0},
-    "gofish_running": False,
-    "gofish_min": 10000,
-    "gofish_max": 1000000,
-    "gofish_min_age_hours": 0,
-    "gofish_max_age_hours": MAX_AGE_HOURS,
-    "gofish_keywords": [],
-    "gofish_interval": 300,
-    "gofish_seen": set(),
-    "gofish_stats": {"found": 0, "cycles": 0},
-    "depop_running": False,
-    "depop_min": 10,
-    "depop_max": 500,
-    "depop_min_age_hours": 0,
-    "depop_max_age_hours": MAX_AGE_HOURS,
-    "depop_keywords": [],
-    "depop_interval": 300,
-    "depop_seen": set(),
-    "depop_stats": {"found": 0, "cycles": 0},
-    "depop_bootstrap_done": False,
-    "secondstreet_running": False,
-    "secondstreet_min": 1000,
-    "secondstreet_max": 100000,
-    "secondstreet_min_age_hours": 0,
-    "secondstreet_max_age_hours": MAX_AGE_HOURS,
-    "secondstreet_keywords": [],
-    "secondstreet_interval": 300,
-    "secondstreet_seen": set(),
-    "secondstreet_stats": {"found": 0, "cycles": 0},
-    "secondstreet_bootstrap_done": False,
+    "grailed_running": False,
+    "grailed_min": 10,
+    "grailed_max": 500,
+    "grailed_min_age_hours": 0,
+    "grailed_max_age_hours": MAX_AGE_HOURS,
+    "grailed_keywords": [],
+    "grailed_interval": 300,
+    "grailed_seen": set(),
+    "grailed_stats": {"found": 0, "cycles": 0},
+    "grailed_bootstrap_done": False,
+    }
+
+
+_default_state = _new_state()
+_user_states = {}
+
+
+_PERSISTED_KEYS = {
+    "chat_id",
+    "chat_ids",
+    "current_market",
+    "brands_page",
+    "brands_query",
+    "brands_active_only",
+    "active_brands",
+    "vinted_min",
+    "vinted_max",
+    "vinted_min_age_hours",
+    "vinted_max_age_hours",
+    "vinted_keywords",
+    "mercari_min",
+    "mercari_max",
+    "mercari_min_age_hours",
+    "mercari_max_age_hours",
+    "mercari_keywords",
+    "fruits_min",
+    "fruits_max",
+    "fruits_min_age_hours",
+    "fruits_max_age_hours",
+    "fruits_keywords",
+    "grailed_min",
+    "grailed_max",
+    "grailed_min_age_hours",
+    "grailed_max_age_hours",
+    "grailed_keywords",
 }
+
+
+def _serialize_value(value):
+    if isinstance(value, set):
+        return sorted(value)
+    return copy.deepcopy(value)
+
+
+def _apply_saved_state(target, saved):
+    if not isinstance(saved, dict):
+        return
+    for key in _PERSISTED_KEYS:
+        if key not in saved:
+            continue
+        value = saved[key]
+        if key in ("chat_ids", "active_brands"):
+            value = set(value or [])
+        target[key] = value
+
+
+def _load_user_states():
+    if not USER_STATE_FILE.exists():
+        return
+    try:
+        raw = json.loads(USER_STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logging.getLogger("parser").warning("Could not read user profiles %s: %s", USER_STATE_FILE, exc)
+        return
+    if not isinstance(raw, dict):
+        return
+    with _profiles_lock:
+        for user_id, saved in raw.items():
+            profile = _new_state()
+            _apply_saved_state(profile, saved)
+            _user_states[str(user_id)] = profile
+
+
+def _save_user_states():
+    with _profiles_lock:
+        data = {
+            user_id: {
+                key: _serialize_value(profile.get(key))
+                for key in _PERSISTED_KEYS
+                if key in profile
+            }
+            for user_id, profile in _user_states.items()
+        }
+    try:
+        USER_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        USER_STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as exc:
+        logging.getLogger("parser").warning("Could not save user profiles %s: %s", USER_STATE_FILE, exc)
+
+
+def _get_profile(user_id):
+    key = str(user_id)
+    with _profiles_lock:
+        if key not in _user_states:
+            _user_states[key] = _new_state()
+        return _user_states[key]
+
+
+def set_current_user(user_id, chat_id=None):
+    if user_id is None:
+        return None
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        return None
+    _current_user_id.set(str(user_id))
+    profile = _get_profile(user_id)
+    if chat_id is not None:
+        register_chat_id(chat_id)
+    return profile
+
+
+def save_current_user_state():
+    if _current_user_id.get() is not None:
+        _save_user_states()
+
+
+def current_user_id():
+    return _current_user_id.get()
+
+
+def _active_state():
+    user_id = _current_user_id.get()
+    if user_id is None:
+        return _default_state
+    return _get_profile(user_id)
+
+
+class StateProxy(MutableMapping):
+    def __getitem__(self, key):
+        return _active_state()[key]
+
+    def __setitem__(self, key, value):
+        _active_state()[key] = value
+
+    def __delitem__(self, key):
+        del _active_state()[key]
+
+    def __iter__(self):
+        return iter(_active_state())
+
+    def __len__(self):
+        return len(_active_state())
+
+    def __contains__(self, key):
+        return key in _active_state()
+
+    def get(self, key, default=None):
+        return _active_state().get(key, default)
+
+    def setdefault(self, key, default=None):
+        return _active_state().setdefault(key, default)
+
+    def update(self, *args, **kwargs):
+        return _active_state().update(*args, **kwargs)
+
+
+state = StateProxy()
+_load_user_states()
 
 log = logging.getLogger("parser")
 MSK_TZ = timezone(timedelta(hours=3), "MSK")
@@ -413,16 +573,8 @@ def fruits_price_range_label():
     return f"{int(state['fruits_min']):,}–{int(state['fruits_max']):,}₩"
 
 
-def gofish_price_range_label():
-    return f"{int(state['gofish_min']):,}–{int(state['gofish_max']):,}₩"
-
-
-def depop_price_range_label():
-    return f"{_eur_label(state['depop_min'])}–{_eur_label(state['depop_max'])}€"
-
-
-def secondstreet_price_range_label():
-    return f"{int(state['secondstreet_min']):,}–{int(state['secondstreet_max']):,}¥"
+def grailed_price_range_label():
+    return f"${_eur_label(state['grailed_min'])}–${_eur_label(state['grailed_max'])}"
 
 
 def parse_keywords(text):
