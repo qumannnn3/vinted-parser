@@ -57,6 +57,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 bot_app = None
+START_BRANDING_TEXT = "parser by t.me/huntparser"
 
 
 def _market_title(market=None):
@@ -485,9 +486,10 @@ async def _ensure_callback_access(q):
 
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not await _ensure_message_access(update):
+    if not is_authorized(_update_user_id(update)):
+        await _send_access_prompt(update, START_BRANDING_TEXT)
         return
-    await _send_main_menu(update)
+    await _send_main_menu(update, START_BRANDING_TEXT)
 
 
 async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
