@@ -273,12 +273,16 @@ def format_fruits_message(item, title_ru, price_line):
 
 
 async def _send_fruits_item(bot_app, image, msg):
+    if not state["fruits_running"]:
+        return
     chat_ids = notification_chat_ids()
     if not chat_ids or not bot_app:
         return
 
     async def send_all():
         for chat_id in chat_ids:
+            if not state["fruits_running"]:
+                return
             if image:
                 try:
                     await bot_app.bot.send_photo(
