@@ -148,10 +148,12 @@ def _handle_secondstreet_403(query):
     if _secondstreet_blocked:
         return
     _secondstreet_blocked = True
+    cookie_status = "задан" if SECONDSTREET_COOKIE else "не задан"
     log.error(
         "2nd Street вернул 403 на %r. Останавливаю 2nd Street, чтобы не спамить лог. "
-        "Нужен рабочий SECONDSTREET_COOKIE из браузера или прокси/регион, который 2ndstreet.jp не блокирует.",
+        "SECONDSTREET_COOKIE: %s. Нужен рабочий cookie из браузера или прокси/регион, который 2ndstreet.jp не блокирует.",
         query,
+        cookie_status,
     )
     if SECONDSTREET_403_STOP:
         state["secondstreet_running"] = False
