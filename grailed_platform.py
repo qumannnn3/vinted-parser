@@ -39,7 +39,7 @@ GRAILED_SEARCH_URL = (
 )
 GRAILED_MARKET_PRICE_MAX = int(os.environ.get("GRAILED_MARKET_PRICE_MAX", "100000"))
 GRAILED_MIN_MARKET_SAMPLES = int(os.environ.get("GRAILED_MIN_MARKET_SAMPLES", "1"))
-GRAILED_MAX_MARKET_RATIO = float(os.environ.get("GRAILED_MAX_MARKET_RATIO", "0.90"))
+GRAILED_MAX_MARKET_RATIO = float(os.environ.get("GRAILED_MAX_MARKET_RATIO", "0.85"))
 
 
 GRAILED_KIND_GROUPS = [
@@ -52,6 +52,13 @@ GRAILED_KIND_GROUPS = [
     ("accessory", ["belt", "hat", "cap", "beanie", "glasses", "sunglasses", "scarf", "gloves"]),
 ]
 GRAILED_KIND_WORDS = [word for _, words in GRAILED_KIND_GROUPS for word in words]
+GRAILED_BLOCKED_WORDS = [
+    "style", "inspired", "type", "look", "custom", "reworked", "bootleg",
+    "replica", "fake", "copy", "unauthentic", "counterfeit",
+    "damaged", "beat", "beater", "flawed", "stain", "stained", "hole", "holes",
+    "ripped", "repair", "parts", "sample", "promo",
+    "poster", "book", "magazine", "tag", "sticker", "keychain", "box only",
+]
 
 
 def _headers():
@@ -85,7 +92,18 @@ def _text_blob(item):
 
 
 def grailed_matches_brand(item, brand):
-    return _has_any_term(_text_blob(item), brand_match_terms(brand))
+    terms = brand_match_terms(brand)
+    designer_names = []
+    if isinstance(item, dict):
+        if item.get("designer_names"):
+            designer_names.extend(str(item.get("designer_names")).split(","))
+        for designer in item.get("designers") or []:
+            if isinstance(designer, dict) and designer.get("name"):
+                designer_names.append(designer.get("name"))
+    designer_text = " ".join(str(name or "").lower() for name in designer_names)
+    if designer_text and _has_any_term(designer_text, terms):
+        return True
+    return _has_any_term(_text_blob(item), terms)
 
 
 def grailed_matches_keyword(item, keyword):
@@ -94,6 +112,8 @@ def grailed_matches_keyword(item, keyword):
 
 def is_relevant_grailed_item(item, brand):
     text = _text_blob(item)
+    if _has_any_term(text, GRAILED_BLOCKED_WORDS):
+        return False
     if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
         return False
     if not grailed_matches_brand(item, brand):
@@ -104,6 +124,8 @@ def is_relevant_grailed_item(item, brand):
 def grailed_fashion_kind(item):
     raw = item.get("_raw", item) if isinstance(item, dict) else item
     text = _text_blob(raw)
+    if _has_any_term(text, GRAILED_BLOCKED_WORDS):
+        return ""
     if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
         return ""
     for kind, words in GRAILED_KIND_GROUPS:
