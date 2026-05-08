@@ -61,6 +61,12 @@ def _code_hash(code):
     return hashlib.sha256(str(code).encode("utf-8")).hexdigest()
 
 
+def _constant_time_text_equal(left, right):
+    left_bytes = str(left or "").encode("utf-8")
+    right_bytes = str(right or "").encode("utf-8")
+    return hmac.compare_digest(left_bytes, right_bytes)
+
+
 def _load_access_data():
     global _access_cache
     if _access_cache is not None:
@@ -132,7 +138,7 @@ def _load_authorized_ids():
 
 def _matching_personal_code_hash(code):
     for valid_code in PERSONAL_ACCESS_CODES:
-        if hmac.compare_digest(code, valid_code):
+        if _constant_time_text_equal(code, valid_code):
             return _code_hash(valid_code)
     return None
 
