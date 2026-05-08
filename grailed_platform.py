@@ -101,9 +101,7 @@ def grailed_matches_brand(item, brand):
             if isinstance(designer, dict) and designer.get("name"):
                 designer_names.append(designer.get("name"))
     designer_text = " ".join(str(name or "").lower() for name in designer_names)
-    if designer_text and _has_any_term(designer_text, terms):
-        return True
-    return _has_any_term(_text_blob(item), terms)
+    return bool(designer_text and _has_any_term(designer_text, terms))
 
 
 def grailed_matches_keyword(item, keyword):
