@@ -27,7 +27,18 @@ from shared import (
 
 
 DEPOP_HOME_URL = "https://www.depop.com"
-DEPOP_COOKIE = os.environ.get("DEPOP_COOKIE", os.environ.get("DEPOP_COOKIE_STRING", ""))
+DEPOP_COOKIE_ENV_NAMES = ("DEPOP_COOKIE", "DEPOP_COOKIE_STRING", "DEPOP_COOKIES")
+
+
+def _first_env(names):
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value, name
+    return "", ""
+
+
+DEPOP_COOKIE, DEPOP_COOKIE_SOURCE = _first_env(DEPOP_COOKIE_ENV_NAMES)
 DEPOP_403_STOP = os.environ.get("DEPOP_403_STOP", "1").lower() not in ("0", "false", "no")
 
 DEPOP_KIND_WORDS = [
@@ -88,15 +99,28 @@ def _handle_depop_403(query):
     if _depop_blocked:
         return
     _depop_blocked = True
-    cookie_status = "задан" if DEPOP_COOKIE else "не задан"
+    cookie_status = f"задан ({DEPOP_COOKIE_SOURCE})" if DEPOP_COOKIE else "не задан"
     log.error(
         "Depop вернул 403 на %r. Останавливаю Depop, чтобы не спамить лог. "
-        "DEPOP_COOKIE: %s. Нужен рабочий cookie из браузера или прокси/регион, который depop.com не блокирует.",
+        "DEPOP_COOKIE: %s. Нужен свежий cookie из браузера после входа на depop.com "
+        "или прокси/регион, который depop.com не блокирует.",
         query,
         cookie_status,
     )
     if DEPOP_403_STOP:
         state["depop_running"] = False
+
+
+def _handle_missing_depop_cookie():
+    global _depop_blocked
+    if _depop_blocked:
+        return
+    _depop_blocked = True
+    log.error(
+        "Depop не запущен: cookie не задан. Добавь secret DEPOP_COOKIE со значением cookie "
+        "из браузера для depop.com и нажми Deploy Secrets."
+    )
+    state["depop_running"] = False
 
 
 def _text_blob(item):
@@ -276,6 +300,10 @@ def depop_loop(bot_app):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     log.info("Depop мониторинг запущен")
+    if not DEPOP_COOKIE:
+        _handle_missing_depop_cookie()
+        loop.close()
+        return
 
     while state["depop_running"]:
         brands = list(state["active_brands"] or ALL_BRANDS)
