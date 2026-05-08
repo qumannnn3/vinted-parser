@@ -205,11 +205,12 @@ def _normalize_fruits_item(item):
     }
 
 
-def fetch_fruits(query, price_min=None, price_max=None):
+def fetch_fruits(query, price_min=None, price_max=None, sort_modes=None):
     proxies = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
     items_by_id = {}
+    sort_modes = tuple(sort_modes or ("NEW",))
     try:
-        for sort in ("RELEVANCE", "POPULAR"):
+        for sort in sort_modes:
             for offset in (0, 40):
                 payload = {
                     "query": FRUITS_PRODUCT_QUERY,
@@ -329,7 +330,12 @@ def fruits_loop(bot_app):
                             items_by_id[found["id"]] = found
                     # Отдельная реальная выборка для рынка: без пользовательского фильтра цены,
                     # чтобы рыночная цена считалась по фактическим объявлениям FruitsFamily.
-                    for found in fetch_fruits(search_query, price_min=1, price_max=FRUITS_MARKET_PRICE_MAX):
+                    for found in fetch_fruits(
+                        search_query,
+                        price_min=1,
+                        price_max=FRUITS_MARKET_PRICE_MAX,
+                        sort_modes=("RELEVANCE", "POPULAR"),
+                    ):
                         if found.get("id"):
                             market_items_by_id[found["id"]] = found
 
