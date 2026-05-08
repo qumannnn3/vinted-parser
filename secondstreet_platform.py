@@ -78,6 +78,30 @@ def _strip_tags(raw):
     return html.unescape(re.sub(r"\s+", " ", text)).strip()
 
 
+def _item_block(html_text, match):
+    start = html_text.rfind("<li", 0, match.start())
+    end = html_text.find("</li>", match.end())
+    if start >= 0 and end >= 0:
+        return html_text[start:end + 5]
+    start = max(0, match.start() - 300)
+    end = min(len(html_text), match.end() + 1200)
+    return html_text[start:end]
+
+
+def _clean_item_title(text, price_start):
+    before_price = text[:price_start].strip()
+    if "NEW " in before_price:
+        before_price = before_price.rsplit("NEW ", 1)[-1]
+    before_price = re.sub(r"^(Image|画像)\s*", "", before_price)
+    before_price = re.sub(r"^(おすすめ順|新着順|価格が安い順|価格が高い順|割引率が高い順)\s*", "", before_price)
+    title = before_price[-220:].strip(" -/|")
+    title = re.sub(r"\s*商品の状態\s*:.*$", "", title).strip()
+    title_l = title.lower()
+    if any(bad in title_l for bad in ("href=", "class=", "itemcard_", "sortby=", "<", ">")):
+        return ""
+    return title
+
+
 def _secondstreet_text_blob(item):
     return " ".join(str(item.get(key) or "") for key in ("brand", "title", "condition")).lower()
 
@@ -166,9 +190,7 @@ def fetch_secondstreet(query, price_min=None, price_max=None, limit=30):
             continue
         seen.add(iid)
 
-        start = max(0, match.start() - 900)
-        end = min(len(html_text), match.end() + 1800)
-        block = html_text[start:end]
+        block = _item_block(html_text, match)
         text = _strip_tags(block)
         price_match = re.search(r"[\u00a5\uffe5]\s*([\d,]+)", text)
         if not price_match:
@@ -182,12 +204,9 @@ def fetch_secondstreet(query, price_min=None, price_max=None, limit=30):
         if not (min_price <= price <= max_price):
             continue
 
-        before_price = text[:price_match.start()].strip()
-        before_price = re.sub(r"^(Image|画像|おすすめ順|新着順|価格が安い順|価格が高い順)\s*", "", before_price)
-        title = before_price[-220:].strip(" -/|")
-        title = re.sub(r"\s*商品の状態\s*:.*$", "", title).strip()
+        title = _clean_item_title(text, price_match.start())
         if not title:
-            title = "2nd Street item"
+            continue
         brand = title.split(" ", 1)[0].split("/", 1)[0].strip()
         img_match = re.search(r'<img[^>]+(?:src|data-src)=["\']([^"\']+)["\']', block, re.I)
         image = urljoin(SECONDSTREET_HOME_URL, img_match.group(1)) if img_match else ""
@@ -276,18 +295,18 @@ def secondstreet_loop(bot_app):
                     if iid in state["secondstreet_seen"]:
                         continue
                     if not secondstreet_matches_brand(item, brand):
-                        log.info("SKIP 2nd Street brand mismatch '%s': %s", brand, title[:60])
+                        log.debug("SKIP 2nd Street brand mismatch '%s': %s", brand, title[:60])
                         continue
                     if keyword and not secondstreet_matches_keyword(item, keyword):
-                        log.info("SKIP 2nd Street keyword '%s': %s", keyword, title[:60])
+                        log.debug("SKIP 2nd Street keyword '%s': %s", keyword, title[:60])
                         continue
                     if not is_relevant_secondstreet_item(item):
-                        log.info("SKIP 2nd Street category: %s", title[:60])
+                        log.debug("SKIP 2nd Street category: %s", title[:60])
                         continue
 
                     state["secondstreet_seen"].add(iid)
                     if not state.get("secondstreet_bootstrap_done"):
-                        log.info("SKIP 2nd Street initial seen: %s", title[:60])
+                        log.debug("SKIP 2nd Street initial seen: %s", title[:60])
                         continue
 
                     price = int(item.get("price") or 0)
