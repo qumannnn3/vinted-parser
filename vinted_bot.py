@@ -374,7 +374,8 @@ def brands_kb(page=0):
         InlineKeyboardButton("✅ Выбрать показанные", callback_data="brands_all"),
         InlineKeyboardButton("☐ Снять показанные", callback_data="brands_none"),
     ])
-    rows.append([InlineKeyboardButton("↻ Назад", callback_data=f"pick_{state.get('current_market') or 'vinted'}")])
+    back_target = f"pick_{state['current_market']}" if state.get("current_market") else "main"
+    rows.append([InlineKeyboardButton("↻ Назад", callback_data=back_target)])
     return InlineKeyboardMarkup(rows)
 
 
