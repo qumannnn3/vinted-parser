@@ -9,15 +9,17 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 try:
     from fruits_platform import fruits_loop
-except (ImportError, ModuleNotFoundError) as e:
+except Exception as e:
     logging.getLogger("parser").error("FruitsFamily не загружен: %s", e)
     fruits_loop = None
 try:
     from goofish_platform import gofish_loop
-except ModuleNotFoundError:
+except Exception as e:
+    logging.getLogger("parser").error("Goofish не загружен из goofish_platform.py: %s", e)
     try:
         from gofish_platform import gofish_loop
-    except ModuleNotFoundError:
+    except Exception as fallback_error:
+        logging.getLogger("parser").error("Goofish не загружен из gofish_platform.py: %s", fallback_error)
         gofish_loop = None
 from mercari_platform import mercari_loop
 from shared import (
