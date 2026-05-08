@@ -208,6 +208,16 @@ state = {
     "gofish_interval": 300,
     "gofish_seen": set(),
     "gofish_stats": {"found": 0, "cycles": 0},
+    "depop_running": False,
+    "depop_min": 10,
+    "depop_max": 500,
+    "depop_min_age_hours": 0,
+    "depop_max_age_hours": MAX_AGE_HOURS,
+    "depop_keywords": [],
+    "depop_interval": 300,
+    "depop_seen": set(),
+    "depop_stats": {"found": 0, "cycles": 0},
+    "depop_bootstrap_done": False,
     "secondstreet_running": False,
     "secondstreet_min": 1000,
     "secondstreet_max": 100000,
@@ -405,6 +415,10 @@ def fruits_price_range_label():
 
 def gofish_price_range_label():
     return f"{int(state['gofish_min']):,}–{int(state['gofish_max']):,}₩"
+
+
+def depop_price_range_label():
+    return f"{_eur_label(state['depop_min'])}–{_eur_label(state['depop_max'])}€"
 
 
 def secondstreet_price_range_label():
