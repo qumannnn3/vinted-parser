@@ -112,8 +112,17 @@ def _brand_tokens(brand):
 
 
 def mercari_matches_brand(item, brand):
-    text = _mercari_text_blob(item)
-    return _has_any_term(text, _brand_tokens(brand))
+    brand_value = ""
+    if isinstance(item, dict):
+        raw_brand = item.get("brand") or item.get("brand_name") or item.get("brandName") or ""
+        if isinstance(raw_brand, dict):
+            brand_value = " ".join(str(value or "") for value in raw_brand.values())
+        else:
+            brand_value = str(raw_brand or "")
+    else:
+        brand_value = str(_obj_get(item, "brand", "brand_name", "brandName", default="") or "")
+    brand_text = brand_value.lower()
+    return bool(brand_text and _has_any_term(brand_text, _brand_tokens(brand)))
 
 
 def mercari_item_kind(item):
