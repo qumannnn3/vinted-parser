@@ -208,6 +208,16 @@ state = {
     "gofish_interval": 300,
     "gofish_seen": set(),
     "gofish_stats": {"found": 0, "cycles": 0},
+    "secondstreet_running": False,
+    "secondstreet_min": 1000,
+    "secondstreet_max": 100000,
+    "secondstreet_min_age_hours": 0,
+    "secondstreet_max_age_hours": MAX_AGE_HOURS,
+    "secondstreet_keywords": [],
+    "secondstreet_interval": 300,
+    "secondstreet_seen": set(),
+    "secondstreet_stats": {"found": 0, "cycles": 0},
+    "secondstreet_bootstrap_done": False,
 }
 
 log = logging.getLogger("parser")
@@ -395,6 +405,10 @@ def fruits_price_range_label():
 
 def gofish_price_range_label():
     return f"{int(state['gofish_min']):,}–{int(state['gofish_max']):,}₩"
+
+
+def secondstreet_price_range_label():
+    return f"{int(state['secondstreet_min']):,}–{int(state['secondstreet_max']):,}¥"
 
 
 def parse_keywords(text):
