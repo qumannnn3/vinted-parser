@@ -152,7 +152,7 @@ def _params(query, price_min, price_max, limit):
     )
 
 
-def fetch_grailed(query, limit=30):
+def fetch_grailed(query, limit=80):
     payload = {
         "requests": [
             {
@@ -262,19 +262,15 @@ def grailed_loop(bot_app):
                         log.info("SKIP Grailed age %s: %s", age_label, item.get("title", "?")[:60])
                         continue
 
-                    state["grailed_seen"].add(iid)
-                    if not state.get("grailed_bootstrap_done"):
-                        continue
-
                     title_ru = translate_to_ru(item.get("title", ""))
                     msg = format_grailed_message(item, title_ru)
+                    state["grailed_seen"].add(iid)
                     state["grailed_stats"]["found"] += 1
                     log.info("FOUND Grailed: %s - $%s", item.get("title", "?"), item.get("price"))
                     loop.run_until_complete(_send_grailed_item(bot_app, item.get("image"), msg))
 
                 time.sleep(random.uniform(8, 15))
 
-        state["grailed_bootstrap_done"] = True
         if state["grailed_running"]:
             time.sleep(state["grailed_interval"])
     loop.close()
