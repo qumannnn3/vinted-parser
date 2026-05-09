@@ -56,6 +56,7 @@ FRUITS_ALLOWED_CATEGORIES = {
 FRUITS_MIN_MARKET_SAMPLES = 1
 FRUITS_MAX_MARKET_RATIO = 0.90
 FRUITS_MARKET_PRICE_MAX = 10000000
+FRUITS_OLD_ITEM_STOP_STREAK = 8
 
 FRUITS_BLOCKED_WORDS = [
     "perfume", "fragrance", "향수", "룸스프레이",
@@ -328,23 +329,26 @@ def fruits_loop(bot_app):
                 if _keyword and query.lower().strip() != brand.lower().strip():
                     search_queries.append(brand)
                 items_by_id = {}
-                market_items_by_id = {}
                 for search_query in dict.fromkeys(search_queries):
+                    old_item_streak = 0
                     for found in fetch_fruits(search_query):
                         if found.get("id"):
                             items_by_id[found["id"]] = found
-                    # Отдельная реальная выборка для рынка: без пользовательского фильтра цены,
-                    # чтобы рыночная цена считалась по фактическим объявлениям FruitsFamily.
-                    for found in fetch_fruits(
-                        search_query,
-                        price_min=1,
-                        price_max=FRUITS_MARKET_PRICE_MAX,
-                        sort_modes=("RELEVANCE", "POPULAR"),
-                    ):
-                        if found.get("id"):
-                            market_items_by_id[found["id"]] = found
 
-                market_items = list(market_items_by_id.values()) or list(items_by_id.values())
+                            age_hours = publish_age_hours(found.get("created_at"))
+                            if age_hours is not None and age_hours > float(state["fruits_max_age_hours"]):
+                                old_item_streak += 1
+                                if old_item_streak >= FRUITS_OLD_ITEM_STOP_STREAK:
+                                    log.info(
+                                        "STOP FruitsFamily newest page '%s': %s старых подряд",
+                                        search_query,
+                                        old_item_streak,
+                                    )
+                                    break
+                            else:
+                                old_item_streak = 0
+
+                fresh_candidates = []
 
                 for item in items_by_id.values():
                     iid = item.get("id")
@@ -366,7 +370,28 @@ def fruits_loop(bot_app):
                         age_label = f"{age_hours:.1f}h" if age_hours is not None else "unknown"
                         log.info("SKIP FruitsFamily age %s: %s", age_label, item.get("title", "?")[:60])
                         continue
+                    fresh_candidates.append(item)
 
+                if not fresh_candidates:
+                    continue
+
+                market_items_by_id = {}
+                for search_query in dict.fromkeys(search_queries):
+                    # Отдельная реальная выборка для рынка: без пользовательского фильтра цены,
+                    # чтобы рыночная цена считалась по фактическим объявлениям FruitsFamily.
+                    for found in fetch_fruits(
+                        search_query,
+                        price_min=1,
+                        price_max=FRUITS_MARKET_PRICE_MAX,
+                        sort_modes=("RELEVANCE", "POPULAR"),
+                    ):
+                        if found.get("id"):
+                            market_items_by_id[found["id"]] = found
+
+                market_items = list(market_items_by_id.values()) or list(items_by_id.values())
+
+                for item in fresh_candidates:
+                    iid = item.get("id")
                     market = fruits_market_price_krw(market_items, item, brand, _keyword)
                     if not market:
                         log.info("SKIP FruitsFamily no market sample: %s", item.get("title", "?")[:60])
