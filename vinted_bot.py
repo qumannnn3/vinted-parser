@@ -1,5 +1,7 @@
 import asyncio
+import html
 import logging
+import re
 import threading
 import time
 from datetime import datetime
@@ -51,6 +53,106 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 bot_app = None
 START_BRANDING_TEXT = "parser by t.me/huntparser"
+ADD_EMOJI_RE = re.compile(r"(?:https?://)?t\.me/addemoji/([A-Za-z0-9_]+)", re.IGNORECASE)
+
+
+def _slice_utf16(text, offset, length):
+    raw = str(text or "").encode("utf-16-le")
+    return raw[offset * 2:(offset + length) * 2].decode("utf-16-le", errors="ignore")
+
+
+def _message_custom_emoji_rows(message):
+    rows = []
+    text = message.text or message.caption or ""
+    entities = list(message.entities or []) + list(message.caption_entities or [])
+    for entity in entities:
+        if str(getattr(entity, "type", "")) != "custom_emoji":
+            continue
+        emoji_id = getattr(entity, "custom_emoji_id", None)
+        if not emoji_id:
+            continue
+        fallback = _slice_utf16(text, entity.offset, entity.length) or "⭐"
+        rows.append((str(emoji_id), fallback))
+    sticker = getattr(message, "sticker", None)
+    if sticker and getattr(sticker, "custom_emoji_id", None):
+        rows.append((str(sticker.custom_emoji_id), getattr(sticker, "emoji", None) or "⭐"))
+    return rows
+
+
+async def _send_long_html(message, text, reply_markup=None):
+    chunks = []
+    current = []
+    current_len = 0
+    for line in text.splitlines():
+        line_len = len(line) + 1
+        if current and current_len + line_len > 3800:
+            chunks.append("\n".join(current))
+            current = []
+            current_len = 0
+        current.append(line)
+        current_len += line_len
+    if current:
+        chunks.append("\n".join(current))
+    for idx, chunk in enumerate(chunks):
+        await message.reply_text(
+            chunk,
+            parse_mode="HTML",
+            reply_markup=reply_markup if idx == len(chunks) - 1 else None,
+            disable_web_page_preview=True,
+        )
+
+
+def _emoji_rows_text(title, rows):
+    lines = [f"<b>{html.escape(title)}</b>", ""]
+    for index, (emoji_id, fallback) in enumerate(rows, 1):
+        fallback_safe = html.escape(fallback)
+        emoji_id_safe = html.escape(emoji_id)
+        lines.append(f"{index}. <code>{emoji_id_safe}</code> {fallback_safe}")
+        lines.append(f"<code>&lt;tg-emoji emoji-id=\"{emoji_id_safe}\"&gt;{fallback_safe}&lt;/tg-emoji&gt;</code>")
+    return "\n".join(lines)
+
+
+async def _reply_custom_emoji_ids(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+    if not message:
+        return False
+
+    rows = _message_custom_emoji_rows(message)
+    if rows:
+        await _send_long_html(message, _emoji_rows_text("Custom emoji ID из сообщения", rows), reply_markup=quick_kb())
+        return True
+
+    text = message.text or message.caption or ""
+    set_names = list(dict.fromkeys(match.group(1) for match in ADD_EMOJI_RE.finditer(text)))
+    if not set_names:
+        return False
+
+    for set_name in set_names:
+        try:
+            sticker_set = await ctx.bot.get_sticker_set(set_name)
+        except Exception as e:
+            await message.reply_text(
+                f"Не смог открыть набор <code>{html.escape(set_name)}</code>: {html.escape(str(e))}",
+                parse_mode="HTML",
+                reply_markup=quick_kb(),
+            )
+            continue
+
+        rows = []
+        for sticker in getattr(sticker_set, "stickers", []) or []:
+            emoji_id = getattr(sticker, "custom_emoji_id", None)
+            if emoji_id:
+                rows.append((str(emoji_id), getattr(sticker, "emoji", None) or "⭐"))
+        title = f"Набор {set_name}: {len(rows)} custom emoji"
+        if rows:
+            await _send_long_html(message, _emoji_rows_text(title, rows), reply_markup=quick_kb())
+        else:
+            await message.reply_text(
+                f"В наборе <code>{html.escape(set_name)}</code> не нашёл custom emoji ID.",
+                parse_mode="HTML",
+                reply_markup=quick_kb(),
+            )
+    return True
 
 
 def _market_flag(market):
@@ -138,16 +240,13 @@ def main_kb():
             InlineKeyboardButton("🇪🇺 Vinted", callback_data="pick_vinted"),
             InlineKeyboardButton("🇺🇸 Grailed", callback_data="pick_grailed"),
         ],
-        [
-            InlineKeyboardButton("Brands", callback_data="brands_0"),
-            InlineKeyboardButton("Status", callback_data="status"),
-        ],
+        [InlineKeyboardButton("Бренды", callback_data="brands_0")],
     ])
 
 def quick_kb():
     return ReplyKeyboardMarkup(
         [
-            ["Меню", "Статус"],
+            ["Меню", "Бренды"],
             ["⏹ Остановить"],
             ["🇯🇵 Mercari.jp", "🇰🇷 FruitsFamily"],
             ["🇪🇺 Vinted", "🇺🇸 Grailed"],
@@ -492,6 +591,35 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(status_text(), reply_markup=main_kb(), parse_mode="HTML")
 
 
+async def cmd_brands(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    _activate_update_user(update)
+    if not await _ensure_message_access(update):
+        return
+    register_chat_id(update.effective_chat.id)
+    await update.message.reply_text("Панель команд включена", reply_markup=quick_kb())
+    await update.message.reply_text(
+        brands_text(state.get("brands_page", 0)),
+        reply_markup=brands_kb(state.get("brands_page", 0)),
+        parse_mode="HTML",
+    )
+
+
+async def cmd_emoji(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    _activate_update_user(update)
+    if not await _ensure_message_access(update):
+        return
+    register_chat_id(update.effective_chat.id)
+    await update.message.reply_text(
+        "<b>Сбор custom emoji ID</b>\n\n"
+        "1. Отправь сюда premium emoji текстом.\n"
+        "2. Или отправь ссылку на набор вида <code>https://t.me/addemoji/Name</code>.\n"
+        "3. Бот вернёт <code>custom_emoji_id</code> и готовый HTML-тег для сообщений.",
+        reply_markup=quick_kb(),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+
+
 async def cmd_stop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     _activate_update_user(update)
     if not await _ensure_message_access(update):
@@ -745,6 +873,9 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await _try_unlock_access(update, raw_text)
         return
 
+    if await _reply_custom_emoji_ids(update, ctx):
+        return
+
     aw = state.get("awaiting")
 
     if button_text in ("меню", "menu", "/menu", "/start"):
@@ -756,6 +887,15 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if button_text in ("статус", "status", "/status"):
         state["awaiting"] = None
         await update.message.reply_text(status_text(), reply_markup=main_kb(), parse_mode="HTML")
+        return
+
+    if button_text in ("бренды", "brands", "/brands"):
+        state["awaiting"] = None
+        await update.message.reply_text(
+            brands_text(state.get("brands_page", 0)),
+            reply_markup=brands_kb(state.get("brands_page", 0)),
+            parse_mode="HTML",
+        )
         return
 
     if button_text in ("⏹ остановить", "остановить", "стоп", "stop", "/stop"):
@@ -864,6 +1004,8 @@ async def setup_bot_commands(app):
     commands = [
         BotCommand("start", "Запустить бота"),
         BotCommand("menu", "Главное меню"),
+        BotCommand("brands", "Бренды"),
+        BotCommand("emoji", "ID премиум-эмодзи"),
         BotCommand("status", "Статус мониторинга"),
         BotCommand("stop", "Остановить парсинг"),
         BotCommand("access", "Ввести код доступа"),
@@ -923,6 +1065,8 @@ def main():
         .build()
     )
     bot_app.add_handler(CommandHandler(["start", "menu"], _autosave(cmd_start)))
+    bot_app.add_handler(CommandHandler("brands", _autosave(cmd_brands)))
+    bot_app.add_handler(CommandHandler("emoji", _autosave(cmd_emoji)))
     bot_app.add_handler(CommandHandler("status", _autosave(cmd_status)))
     bot_app.add_handler(CommandHandler("stop", _autosave(cmd_stop)))
     bot_app.add_handler(CommandHandler("access", _autosave(cmd_access)))
