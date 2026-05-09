@@ -383,8 +383,8 @@ def fruits_loop(bot_app):
                     if eur:
                         market_eur = market_krw * rate
                         price_line = (
-                            f"₩{item['price']:,} (~{eur:.0f} EUR)\n"
-                            f"<b>Рынок:</b> ~₩{market_krw:,} (~{market_eur:.0f} EUR), "
+                            f"₩{item['price']:,} (~{eur:.0f} евро)\n"
+                            f"<b>Рынок:</b> ~₩{market_krw:,} (~{market_eur:.0f} евро), "
                             f"ниже на {discount}% · {market_count} сравн."
                         )
                     else:
