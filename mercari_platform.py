@@ -29,6 +29,7 @@ from shared import (
 )
 
 mercari_api = None
+MERCARI_OLD_ITEM_STOP_STREAK = 8
 
 MERCARI_BLOCKED_WORDS = [
     "watch", "watches", "swatch", "clock", "perfume", "fragrance", "toy",
@@ -352,7 +353,8 @@ def mercari_loop(bot_app):
                 if not state["mercari_running"]:
                     break
                 items = loop.run_until_complete(fetch_mercari(query))
-                market_items = loop.run_until_complete(fetch_mercari(query, price_min=1, price_max=10_000_000, limit=80)) or items
+                market_items = None
+                old_item_streak = 0
                 for item in items or []:
                     iid = item.get("id")
                     name = item.get("name", "?")
@@ -392,7 +394,18 @@ def mercari_loop(bot_app):
                         age_hours = publish_age_hours(item.get("created_at"))
                         age_label = f"{age_hours:.1f}h" if age_hours is not None else "unknown"
                         log.info("SKIP Mercari age %s: %s", age_label, name[:60])
+                        if age_hours is not None and age_hours > float(state["mercari_max_age_hours"]):
+                            old_item_streak += 1
+                            if old_item_streak >= MERCARI_OLD_ITEM_STOP_STREAK:
+                                log.info(
+                                    "STOP Mercari newest page '%s': %s старых подряд",
+                                    query,
+                                    old_item_streak,
+                                )
+                                break
                         continue
+
+                    old_item_streak = 0
 
                     thumbs = item.get("thumbnails") or item.get("item_images") or []
                     thumb = (thumbs[0].get("url") or thumbs[0].get("image_url", "")) if thumbs else ""
@@ -405,6 +418,10 @@ def mercari_loop(bot_app):
                     name_ru = translate_to_ru(name)
                     rate = get_jpy_to_eur()
                     eur = round(price * rate, 2) if rate else None
+                    if market_items is None:
+                        market_items = loop.run_until_complete(
+                            fetch_mercari(query, price_min=1, price_max=10_000_000, limit=80)
+                        ) or items
                     market = mercari_market_price_jpy(market_items, item, brand)
                     if not market:
                         log.info("SKIP Mercari no market sample: %s", name[:60])
