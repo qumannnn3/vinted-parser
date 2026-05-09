@@ -38,6 +38,12 @@ vinted_sessions: dict[str, requests.Session] = {}
 VINTED_MIN_MARKET_SAMPLES = 1
 VINTED_MAX_MARKET_RATIO = 0.90
 VINTED_MARKET_PRICE_MAX_EUR = 5000
+VINTED_OLD_ITEM_STOP_STREAK = 8
+
+
+def active_vinted_region_items():
+    regions = state.get("active_vinted_regions") or set()
+    return [(code, VINTED_REGIONS[code]) for code in VINTED_REGIONS if code in regions]
 
 
 def make_vinted_session(domain):
@@ -297,27 +303,43 @@ def vinted_market_price_eur(items, target_item, brand, keyword=None):
     )
 
 
-def is_relevant(item, brand):
+def vinted_relevance_status(item, brand):
     if not vinted_matches_brand(item, brand):
-        return False
+        return "brand", None
 
     if not is_deep_fashion_vinted_item(item):
-        log.info("SKIP Vinted deep fashion filter: %s", item.get("title", "?")[:40])
-        return False
+        return "deep_fashion", None
 
     ts = parse_vinted_ts(item)
     if ts is None:
+        return "no_time", None
+
+    age_hours = publish_age_hours(ts)
+    if age_hours is None:
+        return "no_time", None
+    if age_hours < -1 or age_hours < float(state["vinted_min_age_hours"]):
+        return "age", age_hours
+    if age_hours > float(state["vinted_max_age_hours"]):
+        return "too_old", age_hours
+    return "ok", age_hours
+
+
+def is_relevant(item, brand):
+    status, age_hours = vinted_relevance_status(item, brand)
+    if status == "ok":
+        return True
+    if status == "brand":
+        return False
+    if status == "deep_fashion":
+        log.info("SKIP Vinted deep fashion filter: %s", item.get("title", "?")[:40])
+        return False
+    if status == "no_time":
         log.info("SKIP Vinted no publish time id=%s '%s'", item.get("id"), item.get("title", "?")[:40])
         return False
 
-    age_ok = age_in_range(ts, state["vinted_min_age_hours"], state["vinted_max_age_hours"])
-    age_hours = publish_age_hours(ts)
-
-    if age_ok is False:
+    if age_hours is not None:
         log.info("SKIP Vinted age %.1fh: %s", age_hours, item.get("title", "?")[:40])
-        return False
-
-    return True
+    return False
 
 
 def format_vinted_message(item, domain, title, title_ru, price, curr, link, ts_d, brand_title, size, condition, market_line=""):
@@ -474,12 +496,20 @@ def _vinted_loop_inner(bot_app):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    for domain in VINTED_REGIONS.values():
+    active_regions = active_vinted_region_items()
+    if not active_regions:
+        log.warning("Vinted не запущен: регионы не выбраны")
+        state["vinted_running"] = False
+        loop.close()
+        return
+
+    for _, domain in active_regions:
         init_vinted(domain)
         time.sleep(2)
 
     log.info("Vinted мониторинг запущен")
     log.info("Vinted active brands: %s", len(state["active_brands"] or ALL_BRANDS))
+    log.info("Vinted active regions: %s", ", ".join(f".{code}" for code, _ in active_regions))
 
     while state["vinted_running"]:
         brands = list(state["active_brands"] or ALL_BRANDS)
@@ -495,7 +525,7 @@ def _vinted_loop_inner(bot_app):
                 if not state["vinted_running"]:
                     break
 
-                for _, domain in VINTED_REGIONS.items():
+                for _, domain in active_vinted_region_items():
                     if not state["vinted_running"]:
                         break
 
@@ -505,26 +535,36 @@ def _vinted_loop_inner(bot_app):
                         time.sleep(random.randint(60, 120))
                         continue
 
-                    market_items = fetch_vinted(
-                        query,
-                        domain,
-                        price_min=1,
-                        price_max=VINTED_MARKET_PRICE_MAX_EUR,
-                    )
+                    market_items = None
 
-                    if market_items == "BAN":
-                        market_items = items
-
-                    market_items = market_items or items
-
+                    old_item_streak = 0
                     for item in items or []:
                         iid = item.get("id")
 
                         if iid in state["vinted_seen"]:
                             continue
 
-                        if not is_relevant(item, brand):
+                        relevance, age_hours = vinted_relevance_status(item, brand)
+                        if relevance != "ok":
+                            if relevance == "deep_fashion":
+                                log.info("SKIP Vinted deep fashion filter: %s", item.get("title", "?")[:40])
+                            elif relevance == "no_time":
+                                log.info("SKIP Vinted no publish time id=%s '%s'", item.get("id"), item.get("title", "?")[:40])
+                            elif relevance in ("age", "too_old") and age_hours is not None:
+                                log.info("SKIP Vinted age %.1fh: %s", age_hours, item.get("title", "?")[:40])
+                                if relevance == "too_old":
+                                    old_item_streak += 1
+                                    if old_item_streak >= VINTED_OLD_ITEM_STOP_STREAK:
+                                        log.info(
+                                            "STOP Vinted newest_first old page %s '%s': %s старых подряд",
+                                            domain,
+                                            query,
+                                            old_item_streak,
+                                        )
+                                        break
                             continue
+
+                        old_item_streak = 0
 
                         if keyword and not vinted_matches_keyword(item, keyword):
                             log.info("SKIP Vinted keyword '%s': %s", keyword, item.get("title", "?")[:40])
@@ -543,17 +583,19 @@ def _vinted_loop_inner(bot_app):
                             continue
 
                         title = item.get("title", "?")
-                        size = item.get("size_title", "")
-                        brand_title = item.get("brand_title", "")
-                        condition = item.get("status", "")
-                        url = item.get("url", "")
 
-                        link = f"https://{domain}{url}" if url.startswith("/") else url
-                        title_ru = translate_to_ru(title)
-                        ts_d = parse_vinted_ts(item)
+                        if market_items is None:
+                            market_items = fetch_vinted(
+                                query,
+                                domain,
+                                price_min=1,
+                                price_max=VINTED_MARKET_PRICE_MAX_EUR,
+                            )
 
-                        photo_url = get_vinted_photo_url(item)
-                        photo_data = download_vinted_photo(domain, photo_url)
+                            if market_items == "BAN":
+                                market_items = items
+
+                            market_items = market_items or items
 
                         market = vinted_market_price_eur(market_items, item, brand, keyword)
 
@@ -575,6 +617,16 @@ def _vinted_loop_inner(bot_app):
 
                         discount = max(0, round((1 - price_eur / market_eur) * 100))
                         market_line = f"\n<b>Рынок:</b> ~{market_eur:.0f} евро, ниже на {discount}% · {market_count} сравн."
+
+                        size = item.get("size_title", "")
+                        brand_title = item.get("brand_title", "")
+                        condition = item.get("status", "")
+                        url = item.get("url", "")
+                        link = f"https://{domain}{url}" if url.startswith("/") else url
+                        title_ru = translate_to_ru(title)
+                        ts_d = parse_vinted_ts(item)
+                        photo_url = get_vinted_photo_url(item)
+                        photo_data = download_vinted_photo(domain, photo_url)
 
                         msg = format_vinted_message(
                             item,
