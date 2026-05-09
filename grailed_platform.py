@@ -40,6 +40,7 @@ GRAILED_SEARCH_URL = (
 GRAILED_MARKET_PRICE_MAX = int(os.environ.get("GRAILED_MARKET_PRICE_MAX", "100000"))
 GRAILED_MIN_MARKET_SAMPLES = int(os.environ.get("GRAILED_MIN_MARKET_SAMPLES", "1"))
 GRAILED_MAX_MARKET_RATIO = float(os.environ.get("GRAILED_MAX_MARKET_RATIO", "0.85"))
+GRAILED_OLD_ITEM_STOP_STREAK = 8
 
 
 GRAILED_KIND_GROUPS = [
@@ -333,15 +334,8 @@ def grailed_loop(bot_app):
                 items = fetch_grailed(query)
                 if not _is_current_run():
                     break
-                market_items = fetch_grailed(
-                    query,
-                    limit=120,
-                    price_min=1,
-                    price_max=GRAILED_MARKET_PRICE_MAX,
-                    use_age_filter=False,
-                ) or items
-                if not _is_current_run():
-                    break
+                market_items = None
+                old_item_streak = 0
                 for item in items:
                     if not _is_current_run():
                         break
@@ -361,7 +355,27 @@ def grailed_loop(bot_app):
                         age_hours = publish_age_hours(item.get("created_at"))
                         age_label = f"{age_hours:.1f}h" if age_hours is not None else "unknown"
                         log.info("SKIP Grailed age %s: %s", age_label, item.get("title", "?")[:60])
+                        if age_hours is not None and age_hours > float(state["grailed_max_age_hours"]):
+                            old_item_streak += 1
+                            if old_item_streak >= GRAILED_OLD_ITEM_STOP_STREAK:
+                                log.info(
+                                    "STOP Grailed newest page '%s': %s старых подряд",
+                                    query,
+                                    old_item_streak,
+                                )
+                                break
                         continue
+                    old_item_streak = 0
+                    if market_items is None:
+                        market_items = fetch_grailed(
+                            query,
+                            limit=120,
+                            price_min=1,
+                            price_max=GRAILED_MARKET_PRICE_MAX,
+                            use_age_filter=False,
+                        ) or items
+                        if not _is_current_run():
+                            break
                     market = grailed_market_price_usd(market_items, item, brand, keyword)
                     if not market:
                         log.info("SKIP Grailed no market sample: %s", item.get("title", "?")[:60])
