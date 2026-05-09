@@ -74,7 +74,10 @@ BAD_WORDS = [
 DEEP_FASHION_BLOCKED_WORDS = [
     "novelty", "ノベルティ", "sample", "gift", "promo", "limited gift", "付録",
     "mirror", "ミラー", "鏡", "basket", "バスケット", "籠", "かご",
-    "cosmetic", "makeup", "化粧", "メイク", "ポーチのみ", "case only",
+    "cosmetic", "makeup", "perfume", "perfumes", "fragrance", "cologne",
+    "parfum", "eau de toilette", "eau de parfum", "edt", "edp",
+    "aroma", "aromat", "духи", "парфюм", "аромат",
+    "化粧", "メイク", "ポーチのみ", "case only",
     "tableware", "plate", "cup", "mug", "bottle", "glass", "皿", "カップ", "マグ",
     "interior", "home", "room", "blanket", "pillow", "towel", "rug",
     "キッチン", "インテリア", "タオル", "ブランケット", "クッション",
@@ -664,6 +667,40 @@ def brand_query_variants(brand):
 
 def brand_match_terms(brand):
     return _dedupe_texts([brand, *brand_aliases(brand)])
+
+
+def has_brand_disclaimer(text, brand):
+    text = re.sub(r"\s+", " ", str(text or "").lower()).strip()
+    if not text:
+        return False
+
+    markers_after_brand = (
+        r"style",
+        r"inspired",
+        r"inspiration",
+        r"look\s*alike",
+        r"lookalike",
+        r"dupe",
+        r"replica",
+        r"fake",
+        r"bootleg",
+        r"unbranded",
+        r"w\s+stylu",
+        r"в\s+стиле",
+    )
+    marker_alt = "|".join(markers_after_brand)
+
+    for term in brand_match_terms(brand):
+        term = re.sub(r"\s+", " ", str(term or "").lower()).strip()
+        if not term:
+            continue
+        escaped = re.escape(term).replace(r"\ ", r"\s+")
+        if re.search(rf"(?<![a-z0-9]){escaped}[-\s]+(?:{marker_alt})(?![a-z0-9])", text):
+            return True
+        if re.search(rf"(?<![a-z0-9])(?:inspired\s+by|в\s+стиле|w\s+stylu)[-\s]+{escaped}(?![a-z0-9])", text):
+            return True
+
+    return False
 
 
 def _keyword_contains_brand(keyword, brand):
