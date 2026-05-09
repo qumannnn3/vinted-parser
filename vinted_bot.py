@@ -23,6 +23,7 @@ except Exception as e:
 from shared import (
     ALL_BRANDS,
     BOT_TOKEN,
+    DEFAULT_VINTED_REGION_CODES,
     MSK_TZ,
     PROXY_URL,
     VINTED_REGIONS,
@@ -55,6 +56,7 @@ bot_app = None
 START_BRANDING_TEXT = "parser by t.me/huntparser"
 ADD_EMOJI_RE = re.compile(r"(?:https?://)?t\.me/addemoji/([A-Za-z0-9_]+)", re.IGNORECASE)
 CUSTOM_EMOJI_ID_RE = re.compile(r"\b\d{10,}\b")
+PARSING_STARTED_EMOJI = '<tg-emoji emoji-id="5389019921558563669">♾️</tg-emoji>'
 MARKET_ALIASES = {
     "vinted": "vinted",
     "винтед": "vinted",
@@ -365,6 +367,25 @@ def _stopped_markets_label(markets):
     return ", ".join(_market_title(market) for market in markets)
 
 
+def _active_vinted_regions():
+    regions = state.setdefault("active_vinted_regions", set(DEFAULT_VINTED_REGION_CODES))
+    if not isinstance(regions, set):
+        regions = set(regions or [])
+        state["active_vinted_regions"] = regions
+    regions.intersection_update(VINTED_REGIONS.keys())
+    return regions
+
+
+def _vinted_regions_label(limit=12):
+    regions = sorted(_active_vinted_regions())
+    if not regions:
+        return "не выбраны"
+    labels = [f".{code}" for code in regions]
+    if len(labels) > limit:
+        return " ".join(labels[:limit]) + f" +{len(labels) - limit}"
+    return " ".join(labels)
+
+
 def market_text(market=None):
     market = market or state.get("current_market") or "vinted"
     stats = _market_stats(market)
@@ -377,7 +398,7 @@ def market_text(market=None):
     elif market == "grailed":
         area = "grailed.com"
     else:
-        area = " ".join(f".{r}" for r in VINTED_REGIONS)
+        area = _vinted_regions_label()
     last = datetime.now(MSK_TZ).strftime("%H:%M МСК")
     return (
         f"<b>{title}</b>\n"
@@ -398,19 +419,22 @@ def market_text(market=None):
 def market_kb(market=None):
     market = market or state.get("current_market") or "vinted"
     run_text = "⏹ Остановить" if _market_running(market) else "▶ Запустить"
-    return InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton(run_text, callback_data=f"toggle_{market}")],
         [
             InlineKeyboardButton("ⓘ Фильтры", callback_data=f"filters_{market}"),
             _emoji_button(_market_title(market), f"pick_{market}", _market_emoji_key(market), "ⓘ"),
         ],
         [InlineKeyboardButton("↻ Сменить площадку", callback_data="back")],
-    ])
+    ]
+    if market == "vinted":
+        rows.insert(2, [InlineKeyboardButton("🌍 Регионы", callback_data="vinted_regions_0")])
+    return InlineKeyboardMarkup(rows)
 
 
 def filters_text(market=None):
     market = market or state.get("current_market") or "vinted"
-    return (
+    text = (
         f"<b>{_market_title(market)} • Фильтры</b>\n\n"
         "<b>Цена</b>\n"
         f"└ {_price_label(market)}\n\n"
@@ -419,11 +443,14 @@ def filters_text(market=None):
         "<b>Ключевые слова</b>\n"
         f"└ {_keywords_label(market)}"
     )
+    if market == "vinted":
+        text += f"\n\n<b>Регионы</b>\n└ {_vinted_regions_label()}"
+    return text
 
 
 def filters_kb(market=None):
     market = market or state.get("current_market") or "vinted"
-    return InlineKeyboardMarkup([
+    rows = [
         [
             InlineKeyboardButton("Цена", callback_data=f"price_{market}"),
             InlineKeyboardButton("Время", callback_data=f"age_{market}"),
@@ -435,7 +462,10 @@ def filters_kb(market=None):
             _emoji_button(_market_title(market), f"pick_{market}", _market_emoji_key(market), "ⓘ"),
         ],
         [InlineKeyboardButton("↻ Сменить площадку", callback_data="back")],
-    ])
+    ]
+    if market == "vinted":
+        rows.insert(1, [InlineKeyboardButton("🌍 Регионы", callback_data="vinted_regions_0")])
+    return InlineKeyboardMarkup(rows)
 
 
 def status_text():
@@ -449,6 +479,7 @@ def status_text():
 
 
 BRANDS_PER_PAGE = 12
+VINTED_REGIONS_PER_PAGE = 12
 BRAND_NAME_OVERRIDES = {
     "aape": "Aape",
     "acronym": "ACRONYM",
@@ -522,6 +553,13 @@ def brands_text(page=0):
     return "\n".join(parts)
 
 
+def parsing_started_text(market):
+    return (
+        f"{PARSING_STARTED_EMOJI} <b>{_market_title(market)} запущен</b>\n\n"
+        f"{market_text(market)}"
+    )
+
+
 def brands_kb(page=0):
     page = _normalize_brands_page(page)
     state["brands_page"] = page
@@ -565,6 +603,68 @@ def brands_kb(page=0):
     ])
     back_target = f"pick_{state['current_market']}" if state.get("current_market") else "main"
     rows.append([InlineKeyboardButton("↻ Назад", callback_data=back_target)])
+    return InlineKeyboardMarkup(rows)
+
+
+def _vinted_region_codes():
+    return list(VINTED_REGIONS.keys())
+
+
+def _vinted_regions_pages_count():
+    return max(1, (len(_vinted_region_codes()) - 1) // VINTED_REGIONS_PER_PAGE + 1)
+
+
+def _normalize_vinted_regions_page(page):
+    try:
+        page = int(page)
+    except (TypeError, ValueError):
+        page = 0
+    return max(0, min(page, _vinted_regions_pages_count() - 1))
+
+
+def vinted_regions_text(page=0):
+    page = _normalize_vinted_regions_page(page)
+    active = _active_vinted_regions()
+    return (
+        "<b>Vinted • Регионы</b>\n"
+        f"Активны: <b>{len(active)}</b>/<b>{len(VINTED_REGIONS)}</b>\n"
+        f"Выбрано: <code>{html.escape(_vinted_regions_label(limit=26))}</code>\n"
+        f"Страница: <b>{page + 1}</b>/<b>{_vinted_regions_pages_count()}</b>\n\n"
+        "Нажимай на регион, чтобы включить или выключить его."
+    )
+
+
+def vinted_regions_kb(page=0):
+    page = _normalize_vinted_regions_page(page)
+    state["vinted_regions_page"] = page
+    active = _active_vinted_regions()
+    codes = _vinted_region_codes()
+    start = page * VINTED_REGIONS_PER_PAGE
+    chunk = codes[start:start + VINTED_REGIONS_PER_PAGE]
+    rows = []
+    buttons = []
+
+    for code in chunk:
+        icon = "✅" if code in active else "▫️"
+        buttons.append(InlineKeyboardButton(f"{icon} .{code}", callback_data=f"vregion_{code}"))
+
+    for i in range(0, len(buttons), 3):
+        rows.append(buttons[i:i + 3])
+
+    pages = _vinted_regions_pages_count()
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("‹ Назад", callback_data=f"vinted_regions_{page - 1}"))
+    nav.append(InlineKeyboardButton(f"{page + 1}/{pages}", callback_data="noop_vregions_page"))
+    if page + 1 < pages:
+        nav.append(InlineKeyboardButton("Вперёд ›", callback_data=f"vinted_regions_{page + 1}"))
+    rows.append(nav)
+
+    rows.append([
+        InlineKeyboardButton("✅ Все", callback_data="vregions_all"),
+        InlineKeyboardButton("☐ Снять все", callback_data="vregions_none"),
+    ])
+    rows.append([InlineKeyboardButton("↻ Назад к Vinted", callback_data="pick_vinted")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -886,6 +986,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         market = data.split("_", 1)[1]
         state["current_market"] = market
         running_key = f"{market}_running"
+        started = False
         if state[running_key]:
             state[running_key] = False
             state[f"{market}_run_id"] = state.get(f"{market}_run_id", 0) + 1
@@ -893,16 +994,57 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             if not state["active_brands"]:
                 await q.answer("Выбери хотя бы один бренд", show_alert=True)
                 return
+            if market == "vinted" and not _active_vinted_regions():
+                await q.answer("Выбери хотя бы один регион Vinted", show_alert=True)
+                return
             state[f"{market}_run_id"] = state.get(f"{market}_run_id", 0) + 1
             state[running_key] = True
             _start_market_thread(market)
-        await edit(market_text(market), market_kb(market))
+            started = True
+        if started:
+            await edit(parsing_started_text(market), market_kb(market))
+        else:
+            await edit(market_text(market), market_kb(market))
         return
 
     if data in ("filters_vinted", "filters_mercari", "filters_fruits", "filters_grailed", "vinted_settings", "mercari_settings", "fruits_settings", "grailed_settings"):
         market = "grailed" if "grailed" in data else ("fruits" if "fruits" in data else ("mercari" if "mercari" in data else "vinted"))
         state["current_market"] = market
         await edit(filters_text(market), filters_kb(market))
+        return
+
+    if data.startswith("vinted_regions_"):
+        state["current_market"] = "vinted"
+        try:
+            page = int(data.rsplit("_", 1)[1])
+        except (IndexError, ValueError):
+            page = 0
+        await edit(vinted_regions_text(page), vinted_regions_kb(page))
+        return
+
+    if data.startswith("vregion_"):
+        code = data.split("_", 1)[1]
+        active = _active_vinted_regions()
+        if code not in VINTED_REGIONS:
+            await q.answer("Неизвестный регион", show_alert=True)
+            return
+        if code in active:
+            active.discard(code)
+            await q.answer(f"Выключен Vinted .{code}")
+        else:
+            active.add(code)
+            await q.answer(f"Включен Vinted .{code}")
+        await edit(vinted_regions_text(state.get("vinted_regions_page", 0)), vinted_regions_kb(state.get("vinted_regions_page", 0)))
+        return
+
+    if data == "vregions_all":
+        state["active_vinted_regions"] = set(VINTED_REGIONS.keys())
+        await edit(vinted_regions_text(state.get("vinted_regions_page", 0)), vinted_regions_kb(state.get("vinted_regions_page", 0)))
+        return
+
+    if data == "vregions_none":
+        state["active_vinted_regions"] = set()
+        await edit(vinted_regions_text(state.get("vinted_regions_page", 0)), vinted_regions_kb(state.get("vinted_regions_page", 0)))
         return
 
     if data in ("price_vinted", "vset_min", "vset_max"):
