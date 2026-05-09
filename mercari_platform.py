@@ -419,8 +419,8 @@ def mercari_loop(bot_app):
                     if eur:
                         market_eur = round(market_jpy * rate, 0)
                         price_str = (
-                            f"¥{price:,} (~{eur:.0f} EUR)\n"
-                            f"<b>Рынок:</b> ~¥{market_jpy:,} (~{market_eur:.0f} EUR), "
+                            f"¥{price:,} (~{eur:.0f} евро)\n"
+                            f"<b>Рынок:</b> ~¥{market_jpy:,} (~{market_eur:.0f} евро), "
                             f"ниже на {discount}% · {market_count} сравн."
                         )
                     else:
