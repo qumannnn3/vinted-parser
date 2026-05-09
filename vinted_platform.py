@@ -332,12 +332,17 @@ def format_vinted_message(item, domain, title, title_ru, price, curr, link, ts_d
     title_safe = html.escape(str(title_ru or title))
     link_safe = html.escape(str(link), quote=True)
 
-    price_line = f"{price:g} {html.escape(str(curr))}"
+    currency_labels = {
+        "EUR": "евро",
+        "PLN": "злотых",
+    }
+    curr_label = currency_labels.get(str(curr).upper(), html.escape(str(curr)))
+    price_line = f"{price:g} {curr_label}"
 
     try:
         price_eur = vinted_price_to_eur(price, curr)
         if str(curr).upper() != "EUR":
-            price_line += f" (~{price_eur:.2f} EUR)"
+            price_line += f" (~{price_eur:.2f} евро)"
     except Exception:
         pass
 
@@ -569,7 +574,7 @@ def _vinted_loop_inner(bot_app):
                             continue
 
                         discount = max(0, round((1 - price_eur / market_eur) * 100))
-                        market_line = f"\n<b>Рынок:</b> ~{market_eur:.0f} EUR, ниже на {discount}% · {market_count} сравн."
+                        market_line = f"\n<b>Рынок:</b> ~{market_eur:.0f} евро, ниже на {discount}% · {market_count} сравн."
 
                         msg = format_vinted_message(
                             item,
