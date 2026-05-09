@@ -258,10 +258,10 @@ def format_grailed_message(item, title_ru, market_line=""):
         "<b>Grailed</b>\n"
         f"<b>{title_safe}</b>\n"
         f"{meta}"
-        f"<b>Price:</b> ${price:g}\n"
+        f"<b>Цена:</b> ${price:g}\n"
         f"{market_line}"
-        f"<b>Published:</b> {format_msk_timestamp(item.get('created_at'))}\n\n"
-        f"<a href='{link_safe}'>Open listing</a>"
+        f"<b>Публикация:</b> {format_msk_timestamp(item.get('created_at'))}\n\n"
+        f"<a href='{link_safe}'>Открыть объявление</a>"
     )
 
 
@@ -378,7 +378,7 @@ def grailed_loop(bot_app):
                         )
                         continue
                     discount = max(0, round((1 - price / market_usd) * 100))
-                    market_line = f"<b>Market:</b> ~${market_usd:.0f}, below by {discount}% · {market_count} comps\n"
+                    market_line = f"<b>Рынок:</b> ~${market_usd:.0f}, ниже на {discount}% · {market_count} сравн.\n"
 
                     if not _is_current_run():
                         break
