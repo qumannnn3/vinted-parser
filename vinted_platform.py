@@ -19,6 +19,7 @@ from shared import (
     age_in_range,
     brand_match_terms,
     format_msk_timestamp,
+    has_brand_disclaimer,
     keyword_matches_text,
     log,
     market_search_queries,
@@ -255,6 +256,10 @@ def vinted_matches_brand(item, brand):
     return bool(brand_text and _has_any_term(brand_text, brand_match_terms(brand)))
 
 
+def vinted_has_brand_disclaimer(item, brand):
+    return has_brand_disclaimer(_vinted_text_blob(item), brand)
+
+
 def vinted_fashion_kind(item):
     text = _vinted_text_blob(item)
 
@@ -295,6 +300,7 @@ def vinted_market_price_eur(items, target_item, brand, keyword=None):
         id_getter=lambda item: item.get("id"),
         item_filter=lambda item: (
             vinted_matches_brand(item, brand)
+            and not vinted_has_brand_disclaimer(item, brand)
             and is_deep_fashion_vinted_item(item)
             and (not keyword or vinted_matches_keyword(item, keyword))
         ),
@@ -306,6 +312,9 @@ def vinted_market_price_eur(items, target_item, brand, keyword=None):
 def vinted_relevance_status(item, brand):
     if not vinted_matches_brand(item, brand):
         return "brand", None
+
+    if vinted_has_brand_disclaimer(item, brand):
+        return "brand_disclaimer", None
 
     if not is_deep_fashion_vinted_item(item):
         return "deep_fashion", None
@@ -329,6 +338,9 @@ def is_relevant(item, brand):
     if status == "ok":
         return True
     if status == "brand":
+        return False
+    if status == "brand_disclaimer":
+        log.info("SKIP Vinted brand/style disclaimer: %s", item.get("title", "?")[:40])
         return False
     if status == "deep_fashion":
         log.info("SKIP Vinted deep fashion filter: %s", item.get("title", "?")[:40])
@@ -548,6 +560,8 @@ def _vinted_loop_inner(bot_app):
                         if relevance != "ok":
                             if relevance == "deep_fashion":
                                 log.info("SKIP Vinted deep fashion filter: %s", item.get("title", "?")[:40])
+                            elif relevance == "brand_disclaimer":
+                                log.info("SKIP Vinted brand/style disclaimer: %s", item.get("title", "?")[:40])
                             elif relevance == "no_time":
                                 log.info("SKIP Vinted no publish time id=%s '%s'", item.get("id"), item.get("title", "?")[:40])
                             elif relevance in ("age", "too_old") and age_hours is not None:
