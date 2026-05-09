@@ -16,6 +16,7 @@ from shared import (
     brand_match_terms,
     format_msk_timestamp,
     get_jpy_to_eur,
+    has_brand_disclaimer,
     keyword_matches_text,
     log,
     market_search_queries,
@@ -156,6 +157,10 @@ def mercari_matches_keyword(item, keyword):
     return keyword_matches_text(_mercari_text_blob(item), keyword)
 
 
+def mercari_has_brand_disclaimer(item, brand):
+    return has_brand_disclaimer(_mercari_text_blob(item), brand)
+
+
 def _best_mercari_image_url(url):
     if not url:
         return ""
@@ -175,7 +180,10 @@ def mercari_market_price_jpy(items, target_item, brand):
         target_item,
         price_getter=lambda item: item.get("price", 0),
         id_getter=lambda item: item.get("id"),
-        item_filter=lambda item: mercari_matches_brand(item, brand),
+        item_filter=lambda item: (
+            mercari_matches_brand(item, brand)
+            and not mercari_has_brand_disclaimer(item, brand)
+        ),
         kind_getter=deep_fashion_kind,
         min_samples=MERCARI_MIN_MARKET_SAMPLES,
     )
@@ -374,6 +382,9 @@ def mercari_loop(bot_app):
                         continue
                     if not mercari_matches_brand(item, brand):
                         log.info("SKIP Mercari brand mismatch '%s': %s", brand, name[:60])
+                        continue
+                    if mercari_has_brand_disclaimer(item, brand):
+                        log.info("SKIP Mercari brand/style disclaimer: %s", name[:60])
                         continue
                     if keyword and not mercari_matches_keyword(item, keyword):
                         log.info("SKIP Mercari keyword '%s': %s", keyword, name[:60])
