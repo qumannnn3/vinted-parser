@@ -157,6 +157,21 @@ def _emoji_id_from_text_or_reply(message):
     return found[-1] if found else ""
 
 
+async def _custom_emoji_rows_from_set(ctx, set_name):
+    sticker_set = await ctx.bot.get_sticker_set(set_name)
+    rows = []
+    for sticker in getattr(sticker_set, "stickers", []) or []:
+        emoji_id = getattr(sticker, "custom_emoji_id", None)
+        if emoji_id:
+            rows.append((str(emoji_id), getattr(sticker, "emoji", None) or "⭐"))
+    return rows
+
+
+def _extract_addemoji_set_name(text):
+    match = ADD_EMOJI_RE.search(str(text or ""))
+    return match.group(1) if match else ""
+
+
 async def _send_long_html(message, text, reply_markup=None):
     chunks = []
     current = []
@@ -207,7 +222,7 @@ async def _reply_custom_emoji_ids(update: Update, ctx: ContextTypes.DEFAULT_TYPE
 
     for set_name in set_names:
         try:
-            sticker_set = await ctx.bot.get_sticker_set(set_name)
+            rows = await _custom_emoji_rows_from_set(ctx, set_name)
         except Exception as e:
             await message.reply_text(
                 f"Не смог открыть набор <code>{html.escape(set_name)}</code>: {html.escape(str(e))}",
@@ -216,11 +231,6 @@ async def _reply_custom_emoji_ids(update: Update, ctx: ContextTypes.DEFAULT_TYPE
             )
             continue
 
-        rows = []
-        for sticker in getattr(sticker_set, "stickers", []) or []:
-            emoji_id = getattr(sticker, "custom_emoji_id", None)
-            if emoji_id:
-                rows.append((str(emoji_id), getattr(sticker, "emoji", None) or "⭐"))
         title = f"Набор {set_name}: {len(rows)} custom emoji"
         if rows:
             await _send_long_html(message, _emoji_rows_text(title, rows), reply_markup=quick_kb())
@@ -496,12 +506,9 @@ def brands_text(page=0):
     active_only = bool(state.get("brands_active_only"))
     active_count = len(state["active_brands"])
     total_count = len(ALL_BRANDS)
-    emoji_count = sum(1 for brand in ALL_BRANDS if _custom_emoji_id(_brand_emoji_key(brand)))
-
     parts = [
         "<b>Бренды</b>",
         f"Активны: <b>{active_count}</b>/<b>{total_count}</b>",
-        f"Стикеры: <b>{emoji_count}</b>/<b>{total_count}</b>",
     ]
     if query:
         parts.append(f"Поиск: <code>{query}</code>")
@@ -760,6 +767,66 @@ async def cmd_setemoji(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{_tg_emoji(key, '⭐')} Теперь он появится в меню, где Telegram поддерживает custom emoji.",
         parse_mode="HTML",
         reply_markup=quick_kb(),
+    )
+
+
+async def cmd_importbrandemoji(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    _activate_update_user(update)
+    if not await _ensure_message_access(update):
+        return
+    register_chat_id(update.effective_chat.id)
+
+    text = " ".join(ctx.args or [])
+    if not text and update.message.reply_to_message:
+        text = update.message.reply_to_message.text or update.message.reply_to_message.caption or ""
+    set_name = _extract_addemoji_set_name(text)
+    if not set_name:
+        await update.message.reply_text(
+            "<b>Массовый импорт стикеров брендов</b>\n\n"
+            "Отправь команду со ссылкой на emoji-pack:\n"
+            "<code>/importbrandemoji https://t.me/addemoji/SetName</code>\n\n"
+            "Первые 81 custom emoji будут привязаны к брендам по порядку списка.",
+            parse_mode="HTML",
+            reply_markup=quick_kb(),
+            disable_web_page_preview=True,
+        )
+        return
+
+    try:
+        rows = await _custom_emoji_rows_from_set(ctx, set_name)
+    except Exception as e:
+        await update.message.reply_text(
+            f"Не смог открыть набор <code>{html.escape(set_name)}</code>: {html.escape(str(e))}",
+            parse_mode="HTML",
+            reply_markup=quick_kb(),
+        )
+        return
+
+    if not rows:
+        await update.message.reply_text(
+            f"В наборе <code>{html.escape(set_name)}</code> не нашёл custom emoji ID.",
+            parse_mode="HTML",
+            reply_markup=quick_kb(),
+        )
+        return
+
+    emoji_map = _custom_emoji_map()
+    pairs = list(zip(ALL_BRANDS, rows))
+    for brand, (emoji_id, _fallback) in pairs:
+        emoji_map[_brand_emoji_key(brand)] = emoji_id
+
+    preview = "\n".join(
+        f"{_tg_emoji(_brand_emoji_key(brand), fallback)} {_brand_name(brand)}"
+        for brand, (_emoji_id, fallback) in pairs[:12]
+    )
+    await update.message.reply_text(
+        f"✅ Импортировано стикеров брендов: <b>{len(pairs)}</b>/<b>{len(ALL_BRANDS)}</b>\n"
+        f"Набор: <code>{html.escape(set_name)}</code>\n\n"
+        f"{preview}\n\n"
+        "Открой меню <b>Бренды</b>, теперь счётчик и кнопки должны обновиться.",
+        parse_mode="HTML",
+        reply_markup=quick_kb(),
+        disable_web_page_preview=True,
     )
 
 
@@ -1150,6 +1217,7 @@ async def setup_bot_commands(app):
         BotCommand("brands", "Бренды"),
         BotCommand("emoji", "ID премиум-эмодзи"),
         BotCommand("setemoji", "Привязать стикер"),
+        BotCommand("importbrandemoji", "Импорт стикеров брендов"),
         BotCommand("status", "Статус мониторинга"),
         BotCommand("stop", "Остановить парсинг"),
         BotCommand("access", "Ввести код доступа"),
@@ -1212,6 +1280,7 @@ def main():
     bot_app.add_handler(CommandHandler("brands", _autosave(cmd_brands)))
     bot_app.add_handler(CommandHandler("emoji", _autosave(cmd_emoji)))
     bot_app.add_handler(CommandHandler("setemoji", _autosave(cmd_setemoji)))
+    bot_app.add_handler(CommandHandler("importbrandemoji", _autosave(cmd_importbrandemoji)))
     bot_app.add_handler(CommandHandler("status", _autosave(cmd_status)))
     bot_app.add_handler(CommandHandler("stop", _autosave(cmd_stop)))
     bot_app.add_handler(CommandHandler("access", _autosave(cmd_access)))
