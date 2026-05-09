@@ -54,6 +54,19 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 bot_app = None
 START_BRANDING_TEXT = "parser by t.me/huntparser"
 ADD_EMOJI_RE = re.compile(r"(?:https?://)?t\.me/addemoji/([A-Za-z0-9_]+)", re.IGNORECASE)
+CUSTOM_EMOJI_ID_RE = re.compile(r"\b\d{10,}\b")
+MARKET_ALIASES = {
+    "vinted": "vinted",
+    "винтед": "vinted",
+    "mercari": "mercari",
+    "mercari.jp": "mercari",
+    "меркари": "mercari",
+    "fruits": "fruits",
+    "fruitsfamily": "fruits",
+    "фрутс": "fruits",
+    "grailed": "grailed",
+    "грейлд": "grailed",
+}
 
 
 def _slice_utf16(text, offset, length):
@@ -77,6 +90,71 @@ def _message_custom_emoji_rows(message):
     if sticker and getattr(sticker, "custom_emoji_id", None):
         rows.append((str(sticker.custom_emoji_id), getattr(sticker, "emoji", None) or "⭐"))
     return rows
+
+
+def _custom_emoji_map():
+    value = state.setdefault("custom_emoji_ids", {})
+    if not isinstance(value, dict):
+        state["custom_emoji_ids"] = {}
+        return state["custom_emoji_ids"]
+    return value
+
+
+def _custom_emoji_id(key):
+    return str(_custom_emoji_map().get(key) or "").strip()
+
+
+def _tg_emoji(key, fallback):
+    emoji_id = _custom_emoji_id(key)
+    fallback_safe = html.escape(str(fallback or "⭐"))
+    if not emoji_id:
+        return fallback_safe
+    return f'<tg-emoji emoji-id="{html.escape(emoji_id)}">{fallback_safe}</tg-emoji>'
+
+
+def _emoji_button(text, callback_data, key=None, fallback_icon=None):
+    kwargs = {}
+    emoji_id = _custom_emoji_id(key) if key else ""
+    if emoji_id:
+        kwargs["api_kwargs"] = {"icon_custom_emoji_id": emoji_id}
+    label = str(text)
+    if fallback_icon and not emoji_id:
+        label = f"{fallback_icon} {label}"
+    return InlineKeyboardButton(label, callback_data=callback_data, **kwargs)
+
+
+def _market_emoji_key(market):
+    return f"market:{market}"
+
+
+def _brand_emoji_key(brand):
+    return f"brand:{str(brand or '').lower().strip()}"
+
+
+def _find_brand_by_name(value):
+    wanted = re.sub(r"\s+", " ", str(value or "").lower()).strip()
+    if not wanted:
+        return None
+    for brand in ALL_BRANDS:
+        names = [brand, _brand_name(brand), *brand_aliases(brand)]
+        for name in names:
+            normalized = re.sub(r"\s+", " ", str(name or "").lower()).strip()
+            if wanted == normalized:
+                return brand
+    return None
+
+
+def _emoji_id_from_text_or_reply(message):
+    rows = _message_custom_emoji_rows(message)
+    if rows:
+        return rows[0][0]
+    if getattr(message, "reply_to_message", None):
+        rows = _message_custom_emoji_rows(message.reply_to_message)
+        if rows:
+            return rows[0][0]
+    text = message.text or message.caption or ""
+    found = CUSTOM_EMOJI_ID_RE.findall(text)
+    return found[-1] if found else ""
 
 
 async def _send_long_html(message, text, reply_markup=None):
@@ -157,13 +235,13 @@ async def _reply_custom_emoji_ids(update: Update, ctx: ContextTypes.DEFAULT_TYPE
 
 def _market_flag(market):
     if market == "mercari":
-        return "🇯🇵"
+        return _tg_emoji(_market_emoji_key(market), "🇯🇵")
     if market == "fruits":
-        return "🇰🇷"
+        return _tg_emoji(_market_emoji_key(market), "🇰🇷")
     if market == "grailed":
-        return "🇺🇸"
+        return _tg_emoji(_market_emoji_key(market), "🇺🇸")
     if market == "vinted":
-        return "🇪🇺"
+        return _tg_emoji(_market_emoji_key(market), "🇪🇺")
     return ""
 
 
@@ -233,14 +311,14 @@ def main_text():
 def main_kb():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🇯🇵 Mercari.jp", callback_data="pick_mercari"),
-            InlineKeyboardButton("🇰🇷 FruitsFamily", callback_data="pick_fruits"),
+            _emoji_button("Mercari.jp", "pick_mercari", _market_emoji_key("mercari"), "🇯🇵"),
+            _emoji_button("FruitsFamily", "pick_fruits", _market_emoji_key("fruits"), "🇰🇷"),
         ],
         [
-            InlineKeyboardButton("🇪🇺 Vinted", callback_data="pick_vinted"),
-            InlineKeyboardButton("🇺🇸 Grailed", callback_data="pick_grailed"),
+            _emoji_button("Vinted", "pick_vinted", _market_emoji_key("vinted"), "🇪🇺"),
+            _emoji_button("Grailed", "pick_grailed", _market_emoji_key("grailed"), "🇺🇸"),
         ],
-        [InlineKeyboardButton("Бренды", callback_data="brands_0")],
+        [_emoji_button("Бренды", "brands_0", "menu:brands", "🏷")],
     ])
 
 def quick_kb():
@@ -314,7 +392,7 @@ def market_kb(market=None):
         [InlineKeyboardButton(run_text, callback_data=f"toggle_{market}")],
         [
             InlineKeyboardButton("ⓘ Фильтры", callback_data=f"filters_{market}"),
-            InlineKeyboardButton(f"ⓘ {_market_title(market)}", callback_data=f"pick_{market}"),
+            _emoji_button(_market_title(market), f"pick_{market}", _market_emoji_key(market), "ⓘ"),
         ],
         [InlineKeyboardButton("↻ Сменить площадку", callback_data="back")],
     ])
@@ -344,7 +422,7 @@ def filters_kb(market=None):
         [InlineKeyboardButton("⏹ Остановить" if _market_running(market) else "▶ Запустить", callback_data=f"toggle_{market}")],
         [
             InlineKeyboardButton("ⓘ Фильтры", callback_data=f"filters_{market}"),
-            InlineKeyboardButton(f"ⓘ {_market_title(market)}", callback_data=f"pick_{market}"),
+            _emoji_button(_market_title(market), f"pick_{market}", _market_emoji_key(market), "ⓘ"),
         ],
         [InlineKeyboardButton("↻ Сменить площадку", callback_data="back")],
     ])
@@ -418,10 +496,12 @@ def brands_text(page=0):
     active_only = bool(state.get("brands_active_only"))
     active_count = len(state["active_brands"])
     total_count = len(ALL_BRANDS)
+    emoji_count = sum(1 for brand in ALL_BRANDS if _custom_emoji_id(_brand_emoji_key(brand)))
 
     parts = [
         "<b>Бренды</b>",
         f"Активны: <b>{active_count}</b>/<b>{total_count}</b>",
+        f"Стикеры: <b>{emoji_count}</b>/<b>{total_count}</b>",
     ]
     if query:
         parts.append(f"Поиск: <code>{query}</code>")
@@ -448,7 +528,7 @@ def brands_kb(page=0):
     for brand in chunk:
         active = brand in state["active_brands"]
         icon = "✅" if active else "▫️"
-        buttons.append(InlineKeyboardButton(f"{icon} {_brand_name(brand)}", callback_data=f"brand_{brand}"))
+        buttons.append(_emoji_button(f"{icon} {_brand_name(brand)}", f"brand_{brand}", _brand_emoji_key(brand)))
 
     for i in range(0, len(buttons), 2):
         rows.append(buttons[i:i + 2])
@@ -617,6 +697,69 @@ async def cmd_emoji(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply_markup=quick_kb(),
         parse_mode="HTML",
         disable_web_page_preview=True,
+    )
+
+
+async def cmd_setemoji(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    _activate_update_user(update)
+    if not await _ensure_message_access(update):
+        return
+    register_chat_id(update.effective_chat.id)
+
+    args = list(ctx.args or [])
+    if len(args) < 2:
+        await update.message.reply_text(
+            "<b>Как привязать стикер</b>\n\n"
+            "Площадка:\n"
+            "<code>/setemoji platform vinted 1234567890</code>\n\n"
+            "Бренд:\n"
+            "<code>/setemoji brand stone island 1234567890</code>\n\n"
+            "Можно ответить этой командой на сообщение с premium emoji и не писать ID.",
+            parse_mode="HTML",
+            reply_markup=quick_kb(),
+        )
+        return
+
+    emoji_id = _emoji_id_from_text_or_reply(update.message)
+    args_without_id = [arg for arg in args if arg != emoji_id]
+    scope = args_without_id[0].lower()
+    value = " ".join(args_without_id[1:]).strip()
+
+    if scope in ("platform", "market", "площадка"):
+        market = MARKET_ALIASES.get(value.lower())
+        if not market:
+            await update.message.reply_text("Не понял площадку. Можно: vinted, mercari, fruits, grailed.", reply_markup=quick_kb())
+            return
+        key = _market_emoji_key(market)
+        label = _market_title(market)
+    elif scope in ("brand", "бренд"):
+        brand = _find_brand_by_name(value)
+        if not brand:
+            await update.message.reply_text("Не нашёл такой бренд в списке. Напиши название как в меню брендов.", reply_markup=quick_kb())
+            return
+        key = _brand_emoji_key(brand)
+        label = _brand_name(brand)
+    elif scope in ("menu", "меню") and value.lower() in ("brands", "бренды"):
+        key = "menu:brands"
+        label = "Бренды"
+    else:
+        await update.message.reply_text("Первый аргумент должен быть <code>platform</code>, <code>brand</code> или <code>menu</code>.", parse_mode="HTML", reply_markup=quick_kb())
+        return
+
+    if not emoji_id:
+        await update.message.reply_text(
+            "Не вижу custom emoji ID. Либо допиши ID в команду, либо ответь командой на сообщение с premium emoji.",
+            reply_markup=quick_kb(),
+        )
+        return
+
+    _custom_emoji_map()[key] = emoji_id
+    await update.message.reply_text(
+        f"✅ Стикер привязан: <b>{html.escape(label)}</b>\n"
+        f"<code>{html.escape(emoji_id)}</code>\n\n"
+        f"{_tg_emoji(key, '⭐')} Теперь он появится в меню, где Telegram поддерживает custom emoji.",
+        parse_mode="HTML",
+        reply_markup=quick_kb(),
     )
 
 
@@ -1006,6 +1149,7 @@ async def setup_bot_commands(app):
         BotCommand("menu", "Главное меню"),
         BotCommand("brands", "Бренды"),
         BotCommand("emoji", "ID премиум-эмодзи"),
+        BotCommand("setemoji", "Привязать стикер"),
         BotCommand("status", "Статус мониторинга"),
         BotCommand("stop", "Остановить парсинг"),
         BotCommand("access", "Ввести код доступа"),
@@ -1067,6 +1211,7 @@ def main():
     bot_app.add_handler(CommandHandler(["start", "menu"], _autosave(cmd_start)))
     bot_app.add_handler(CommandHandler("brands", _autosave(cmd_brands)))
     bot_app.add_handler(CommandHandler("emoji", _autosave(cmd_emoji)))
+    bot_app.add_handler(CommandHandler("setemoji", _autosave(cmd_setemoji)))
     bot_app.add_handler(CommandHandler("status", _autosave(cmd_status)))
     bot_app.add_handler(CommandHandler("stop", _autosave(cmd_stop)))
     bot_app.add_handler(CommandHandler("access", _autosave(cmd_access)))
