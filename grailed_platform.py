@@ -17,6 +17,7 @@ from shared import (
     age_in_range,
     brand_match_terms,
     format_msk_timestamp,
+    has_brand_disclaimer,
     keyword_matches_text,
     log,
     market_search_queries,
@@ -109,6 +110,10 @@ def grailed_matches_keyword(item, keyword):
     return keyword_matches_text(_text_blob(item), keyword)
 
 
+def grailed_has_brand_disclaimer(item, brand):
+    return has_brand_disclaimer(_text_blob(item), brand)
+
+
 def is_relevant_grailed_item(item, brand):
     text = _text_blob(item)
     if _has_any_term(text, GRAILED_BLOCKED_WORDS):
@@ -116,6 +121,8 @@ def is_relevant_grailed_item(item, brand):
     if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
         return False
     if not grailed_matches_brand(item, brand):
+        return False
+    if grailed_has_brand_disclaimer(item, brand):
         return False
     return _has_any_term(text, GRAILED_KIND_WORDS) or bool(item.get("size")) or bool(DEEP_FASHION_SIZE_PATTERN.search(text))
 
@@ -241,6 +248,7 @@ def grailed_market_price_usd(items, target_item, brand, keyword=None):
         id_getter=lambda item: item.get("id"),
         item_filter=lambda item: (
             grailed_matches_brand(item.get("_raw", item), brand)
+            and not grailed_has_brand_disclaimer(item.get("_raw", item), brand)
             and (not keyword or grailed_matches_keyword(item.get("_raw", item), keyword))
         ),
         kind_getter=grailed_fashion_kind,
@@ -343,6 +351,8 @@ def grailed_loop(bot_app):
                     if not iid or iid in state["grailed_seen"]:
                         continue
                     if not is_relevant_grailed_item(item["_raw"], brand):
+                        if grailed_has_brand_disclaimer(item["_raw"], brand):
+                            log.info("SKIP Grailed brand/style disclaimer: %s", item.get("title", "?")[:60])
                         continue
                     if keyword and not grailed_matches_keyword(item["_raw"], keyword):
                         continue
