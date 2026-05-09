@@ -18,10 +18,34 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 PROXY_URL = os.environ.get("PROXY_URL", "")
 
 VINTED_REGIONS = {
+    "at": "www.vinted.at",
+    "be": "www.vinted.be",
+    "com": "www.vinted.com",
+    "co.uk": "www.vinted.co.uk",
+    "cz": "www.vinted.cz",
+    "de": "www.vinted.de",
+    "dk": "www.vinted.dk",
+    "ee": "www.vinted.ee",
+    "es": "www.vinted.es",
+    "fi": "www.vinted.fi",
+    "fr": "www.vinted.fr",
+    "gr": "www.vinted.gr",
+    "hr": "www.vinted.hr",
+    "hu": "www.vinted.hu",
+    "ie": "www.vinted.ie",
+    "it": "www.vinted.it",
     "pl": "www.vinted.pl",
     "lt": "www.vinted.lt",
+    "lu": "www.vinted.lu",
     "lv": "www.vinted.lv",
+    "nl": "www.vinted.nl",
+    "pt": "www.vinted.pt",
+    "ro": "www.vinted.ro",
+    "se": "www.vinted.se",
+    "si": "www.vinted.si",
+    "sk": "www.vinted.sk",
 }
+DEFAULT_VINTED_REGION_CODES = set()
 CATALOG_IDS = [1, 3, 5, 9, 7, 12]
 MAX_AGE_HOURS = 24
 
@@ -192,6 +216,8 @@ def _new_state():
     "brands_active_only": False,
     "active_brands": set(ALL_BRANDS),
     "custom_emoji_ids": {},
+    "active_vinted_regions": set(DEFAULT_VINTED_REGION_CODES),
+    "vinted_regions_page": 0,
     "vinted_running": False,
     "vinted_min": 10,
     "vinted_max": 500,
@@ -250,6 +276,8 @@ _PERSISTED_KEYS = {
     "brands_active_only",
     "active_brands",
     "custom_emoji_ids",
+    "active_vinted_regions",
+    "vinted_regions_page",
     "vinted_min",
     "vinted_max",
     "vinted_min_age_hours",
@@ -286,8 +314,10 @@ def _apply_saved_state(target, saved):
         if key not in saved:
             continue
         value = saved[key]
-        if key in ("chat_ids", "active_brands"):
+        if key in ("chat_ids", "active_brands", "active_vinted_regions"):
             value = set(value or [])
+        if key == "active_vinted_regions":
+            value = {code for code in value if code in VINTED_REGIONS}
         target[key] = value
 
 
