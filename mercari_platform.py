@@ -31,6 +31,22 @@ from shared import (
 
 mercari_api = None
 MERCARI_OLD_ITEM_STOP_STREAK = 8
+MERCARI_EMPTY_BRAND_VALUES = {
+    "",
+    "-",
+    "none",
+    "no brand",
+    "nobrand",
+    "brand unknown",
+    "unknown",
+    "ノーブランド",
+    "ブランドなし",
+    "不明",
+}
+MERCARI_AMBIGUOUS_TEXT_BRAND_TERMS = {
+    "billionaire boys club": {"icecream"},
+    "cav empt": {"ce"},
+}
 
 MERCARI_BLOCKED_WORDS = [
     "watch", "watches", "swatch", "clock", "perfume", "fragrance", "toy",
@@ -113,18 +129,35 @@ def _brand_tokens(brand):
     return [token for token in dict.fromkeys(brand_match_terms(brand)) if token]
 
 
-def mercari_matches_brand(item, brand):
-    brand_value = ""
+def _text_brand_tokens(brand):
+    ambiguous = MERCARI_AMBIGUOUS_TEXT_BRAND_TERMS.get(str(brand or "").lower().strip(), set())
+    return [token for token in _brand_tokens(brand) if token.lower().replace(" ", "") not in ambiguous]
+
+
+def _mercari_brand_text(item):
+    raw_brand = ""
     if isinstance(item, dict):
         raw_brand = item.get("brand") or item.get("brand_name") or item.get("brandName") or ""
-        if isinstance(raw_brand, dict):
-            brand_value = " ".join(str(value or "") for value in raw_brand.values())
-        else:
-            brand_value = str(raw_brand or "")
     else:
-        brand_value = str(_obj_get(item, "brand", "brand_name", "brandName", default="") or "")
-    brand_text = brand_value.lower()
-    return bool(brand_text and _has_any_term(brand_text, _brand_tokens(brand)))
+        raw_brand = _obj_get(item, "brand", "brand_name", "brandName", default="") or ""
+    if isinstance(raw_brand, dict):
+        return " ".join(str(value or "") for value in raw_brand.values()).lower()
+    if isinstance(raw_brand, list):
+        return " ".join(str(value or "") for value in raw_brand).lower()
+    if raw_brand and not isinstance(raw_brand, str):
+        nested = _obj_get(raw_brand, "name", "brand_name", "brandName", "title", default="")
+        return str(nested or "").lower()
+    return str(raw_brand or "").lower()
+
+
+def mercari_matches_brand(item, brand):
+    brand_text = _mercari_brand_text(item)
+    normalized_brand = " ".join(brand_text.replace("_", " ").split())
+    if normalized_brand and normalized_brand not in MERCARI_EMPTY_BRAND_VALUES:
+        return _has_any_term(brand_text, _brand_tokens(brand))
+
+    text = _mercari_text_blob(item)
+    return bool(text and _has_any_term(text, _text_brand_tokens(brand)))
 
 
 def mercari_item_kind(item):
@@ -270,7 +303,7 @@ async def fetch_mercari(query, price_min=None, price_max=None, limit=30):
             log.info("Mercari '%s' -> %s товаров", query, len(items))
         return items
     except Exception as e:
-        if "Event loop is closed" in str(e):
+        if "Event loop is closed" in str(e) or "different event loop" in str(e):
             mercari_api = None
         log.warning("fetch_mercari '%s': %s", query, e)
         return []
