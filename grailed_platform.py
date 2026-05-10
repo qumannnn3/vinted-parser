@@ -5,6 +5,7 @@ import os
 import random
 import threading
 import time
+from io import BytesIO
 from urllib.parse import quote_plus
 
 import requests
@@ -16,10 +17,13 @@ from shared import (
     USER_AGENTS,
     age_in_range,
     brand_match_terms,
+    download_image_bytes,
     format_msk_timestamp,
     has_brand_disclaimer,
+    has_item_seen,
     keyword_matches_text,
     log,
+    mark_item_seen,
     market_search_queries,
     notification_chat_ids,
     publish_age_hours,
@@ -151,9 +155,26 @@ def _item_url(item):
 
 
 def _item_image(item):
-    cover = item.get("cover_photo") or {}
-    if isinstance(cover, dict):
-        return cover.get("image_url") or cover.get("url") or ""
+    candidates = [
+        item.get("cover_photo"),
+        item.get("photo"),
+        item.get("image"),
+        item.get("image_url"),
+        item.get("thumbnail"),
+    ]
+    photos = item.get("photos") or item.get("images") or []
+    if isinstance(photos, (dict, str)):
+        photos = [photos]
+    candidates.extend(photos)
+
+    for image in candidates:
+        if isinstance(image, str) and image.strip():
+            return image.strip()
+        if isinstance(image, dict):
+            for key in ("image_url", "url", "src", "large_url", "small_url"):
+                value = image.get(key)
+                if value:
+                    return str(value).strip()
     return ""
 
 
@@ -274,7 +295,7 @@ def format_grailed_message(item, title_ru, market_line=""):
     )
 
 
-async def _send_grailed_item(bot_app, image, msg):
+async def _send_grailed_item(bot_app, photo_data, msg):
     run_id = getattr(_run_local, "run_id", state.get("grailed_run_id", 0))
     if not _is_run_id_current(run_id):
         return
@@ -286,9 +307,11 @@ async def _send_grailed_item(bot_app, image, msg):
         for chat_id in chat_ids:
             if not _is_run_id_current(run_id):
                 return
-            if image:
+            if photo_data:
                 try:
-                    await bot_app.bot.send_photo(chat_id=chat_id, photo=image, caption=msg, parse_mode="HTML")
+                    photo_file = BytesIO(photo_data)
+                    photo_file.name = "grailed.jpg"
+                    await bot_app.bot.send_photo(chat_id=chat_id, photo=photo_file, caption=msg, parse_mode="HTML")
                     continue
                 except Exception as e:
                     log.warning("Grailed send_photo failed for chat %s: %s", chat_id, e)
@@ -348,7 +371,7 @@ def grailed_loop(bot_app):
                     if not _is_current_run():
                         break
                     iid = item.get("id")
-                    if not iid or iid in state["grailed_seen"]:
+                    if not iid or has_item_seen("grailed", iid):
                         continue
                     if not is_relevant_grailed_item(item["_raw"], brand):
                         if grailed_has_brand_disclaimer(item["_raw"], brand):
@@ -407,11 +430,15 @@ def grailed_loop(bot_app):
                     if not _is_current_run():
                         break
                     title_ru = translate_to_ru(item.get("title", ""))
+                    photo_data = download_image_bytes(item.get("image"), referer=GRAILED_HOME_URL)
+                    if not _is_current_run():
+                        break
                     msg = format_grailed_message(item, title_ru, market_line)
-                    state["grailed_seen"].add(iid)
+                    if not mark_item_seen("grailed", iid):
+                        continue
                     state["grailed_stats"]["found"] += 1
                     log.info("FOUND Grailed: %s - $%s", item.get("title", "?"), item.get("price"))
-                    loop.run_until_complete(_send_grailed_item(bot_app, item.get("image"), msg))
+                    loop.run_until_complete(_send_grailed_item(bot_app, photo_data, msg))
 
                 _sleep_while_running(random.uniform(8, 15))
 
