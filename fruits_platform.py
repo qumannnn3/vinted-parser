@@ -3,6 +3,7 @@ import html
 import random
 import re
 import time
+from io import BytesIO
 
 import requests
 
@@ -12,14 +13,19 @@ from shared import (
     USER_AGENTS,
     age_in_range,
     brand_match_terms,
+    download_image_bytes,
     format_msk_timestamp,
     get_fx_rate,
+    has_item_seen,
+    is_market_run_current,
     keyword_matches_text,
     log,
+    mark_item_seen,
     market_search_queries,
     notification_chat_ids,
     publish_age_hours,
     run_telegram_coroutine,
+    sleep_while_market_running,
     state,
     translate_to_ru,
     _has_any_term,
@@ -186,10 +192,25 @@ def fruits_market_price_krw(items, target_item, brand, keyword=None):
     )
 
 
+def _first_image_url(images):
+    if isinstance(images, (dict, str)):
+        images = [images]
+    for image in images or []:
+        if isinstance(image, str) and image.strip():
+            return image.strip()
+        if isinstance(image, dict):
+            for key in ("url", "image_url", "src", "resized_url"):
+                value = image.get(key)
+                if value:
+                    return str(value).strip()
+    return ""
+
+
 def _normalize_fruits_item(item):
     item_id = str(item.get("id") or "")
     title = item.get("title") or "?"
     images = item.get("images") or item.get("resizedImages") or item.get("resizedSmallImages") or []
+    image = _first_image_url(images)
     return {
         "id": item_id,
         "title": title,
@@ -199,7 +220,7 @@ def _normalize_fruits_item(item):
         "status": item.get("status") or "",
         "created_at": item.get("createdAt"),
         "images": images,
-        "image": images[0] if images else "",
+        "image": image,
         "size": item.get("size") or "",
         "condition": item.get("condition") or "",
         "like_count": item.get("like_count") or 0,
@@ -274,8 +295,8 @@ def format_fruits_message(item, title_ru, price_line):
     )
 
 
-async def _send_fruits_item(bot_app, image, msg):
-    if not state["fruits_running"]:
+async def _send_fruits_item(bot_app, photo_data, msg, run_id):
+    if not is_market_run_current("fruits", run_id):
         return
     chat_ids = notification_chat_ids()
     if not chat_ids or not bot_app:
@@ -283,13 +304,15 @@ async def _send_fruits_item(bot_app, image, msg):
 
     async def send_all():
         for chat_id in chat_ids:
-            if not state["fruits_running"]:
+            if not is_market_run_current("fruits", run_id):
                 return
-            if image:
+            if photo_data:
                 try:
+                    photo_file = BytesIO(photo_data)
+                    photo_file.name = "fruits.jpg"
                     await bot_app.bot.send_photo(
                         chat_id=chat_id,
-                        photo=image,
+                        photo=photo_file,
                         caption=msg,
                         parse_mode="HTML",
                     )
@@ -310,20 +333,21 @@ async def _send_fruits_item(bot_app, image, msg):
 
 
 def fruits_loop(bot_app):
+    run_id = state.get("fruits_run_id", 0)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     log.info("FruitsFamily мониторинг запущен")
 
-    while state["fruits_running"]:
+    while is_market_run_current("fruits", run_id):
         brands = list(state["active_brands"] or ALL_BRANDS)
         random.shuffle(brands)
         state["fruits_stats"]["cycles"] += 1
 
         for brand in brands:
-            if not state["fruits_running"]:
+            if not is_market_run_current("fruits", run_id):
                 break
             for query, _keyword in market_search_queries(brand, "fruits"):
-                if not state["fruits_running"]:
+                if not is_market_run_current("fruits", run_id):
                     break
                 search_queries = [query]
                 if _keyword and query.lower().strip() != brand.lower().strip():
@@ -332,6 +356,8 @@ def fruits_loop(bot_app):
                 for search_query in dict.fromkeys(search_queries):
                     old_item_streak = 0
                     for found in fetch_fruits(search_query):
+                        if not is_market_run_current("fruits", run_id):
+                            break
                         if found.get("id"):
                             items_by_id[found["id"]] = found
 
@@ -352,7 +378,7 @@ def fruits_loop(bot_app):
 
                 for item in items_by_id.values():
                     iid = item.get("id")
-                    if not iid or iid in state["fruits_seen"]:
+                    if not iid or has_item_seen("fruits", iid):
                         continue
                     if not is_relevant_fruits_item(item, brand):
                         log.info("SKIP FruitsFamily filter: %s", item.get("title", "?")[:60])
@@ -385,12 +411,16 @@ def fruits_loop(bot_app):
                         price_max=FRUITS_MARKET_PRICE_MAX,
                         sort_modes=("RELEVANCE", "POPULAR"),
                     ):
+                        if not is_market_run_current("fruits", run_id):
+                            break
                         if found.get("id"):
                             market_items_by_id[found["id"]] = found
 
                 market_items = list(market_items_by_id.values()) or list(items_by_id.values())
 
                 for item in fresh_candidates:
+                    if not is_market_run_current("fruits", run_id):
+                        break
                     iid = item.get("id")
                     market = fruits_market_price_krw(market_items, item, brand, _keyword)
                     if not market:
@@ -418,14 +448,18 @@ def fruits_loop(bot_app):
                             f"<b>Рынок:</b> ~₩{market_krw:,}, ниже на {discount}% · {market_count} сравн."
                         )
                     title_ru = translate_to_ru(item["title"])
+                    photo_data = download_image_bytes(item.get("image"), referer=FRUITS_HOME_URL)
+                    if not is_market_run_current("fruits", run_id):
+                        break
                     msg = format_fruits_message(item, title_ru, price_line)
-                    state["fruits_seen"].add(iid)
+                    if not mark_item_seen("fruits", iid):
+                        continue
                     state["fruits_stats"]["found"] += 1
                     log.info("FOUND FruitsFamily: %s — ₩%s", item["title"], item["price"])
-                    loop.run_until_complete(_send_fruits_item(bot_app, item.get("image"), msg))
+                    loop.run_until_complete(_send_fruits_item(bot_app, photo_data, msg, run_id))
 
-                time.sleep(random.uniform(8, 15))
+                sleep_while_market_running("fruits", run_id, random.uniform(8, 15))
 
-        if state["fruits_running"]:
-            time.sleep(state["fruits_interval"])
+        if is_market_run_current("fruits", run_id):
+            sleep_while_market_running("fruits", run_id, state["fruits_interval"])
     loop.close()
