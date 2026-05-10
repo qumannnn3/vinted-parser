@@ -286,27 +286,31 @@ _PERSISTED_KEYS = {
     "vinted_min_age_hours",
     "vinted_max_age_hours",
     "vinted_keywords",
+    "vinted_seen",
     "mercari_min",
     "mercari_max",
     "mercari_min_age_hours",
     "mercari_max_age_hours",
     "mercari_keywords",
+    "mercari_seen",
     "fruits_min",
     "fruits_max",
     "fruits_min_age_hours",
     "fruits_max_age_hours",
     "fruits_keywords",
+    "fruits_seen",
     "grailed_min",
     "grailed_max",
     "grailed_min_age_hours",
     "grailed_max_age_hours",
     "grailed_keywords",
+    "grailed_seen",
 }
 
 
 def _serialize_value(value):
     if isinstance(value, set):
-        return sorted(value)
+        return sorted(str(item) for item in value if item is not None)
     return copy.deepcopy(value)
 
 
@@ -317,8 +321,18 @@ def _apply_saved_state(target, saved):
         if key not in saved:
             continue
         value = saved[key]
-        if key in ("chat_ids", "active_brands", "active_vinted_regions"):
+        if key == "chat_ids":
+            converted = set()
+            for item in value or []:
+                try:
+                    converted.add(int(item))
+                except (TypeError, ValueError):
+                    continue
+            value = converted
+        elif key in ("active_brands", "active_vinted_regions"):
             value = set(value or [])
+        elif key in ("vinted_seen", "mercari_seen", "fruits_seen", "grailed_seen"):
+            value = set(str(item) for item in (value or []) if item is not None)
         if key == "active_vinted_regions":
             value = {code for code in value if code in VINTED_REGIONS}
         target[key] = value
@@ -473,6 +487,103 @@ def notification_chat_ids():
     if state.get("chat_id") is not None:
         ids.add(state["chat_id"])
     return sorted(ids)
+
+
+def is_market_run_current(market, run_id):
+    return bool(
+        state.get(f"{market}_running")
+        and run_id is not None
+        and state.get(f"{market}_run_id", 0) == run_id
+    )
+
+
+def sleep_while_market_running(market, run_id, seconds):
+    end = time.time() + float(seconds)
+    while is_market_run_current(market, run_id) and time.time() < end:
+        time.sleep(min(1.0, end - time.time()))
+
+
+def _seen_key(item_id, namespace=None):
+    item_id = str(item_id or "").strip()
+    if not item_id:
+        return ""
+    namespace = str(namespace or "").strip()
+    return f"{namespace}:{item_id}" if namespace else item_id
+
+
+def mark_item_seen(market, item_id, namespace=None, max_items=5000):
+    key = _seen_key(item_id, namespace)
+    if not key:
+        return False
+
+    seen_key = f"{market}_seen"
+    legacy = str(item_id or "").strip()
+
+    with _profiles_lock:
+        profile = _active_state()
+        seen = profile.setdefault(seen_key, set())
+        if not isinstance(seen, set):
+            seen = set(str(item) for item in (seen or []) if item is not None)
+            profile[seen_key] = seen
+
+        if key in seen or legacy in seen or item_id in seen:
+            return False
+
+        seen.add(key)
+        if len(seen) > max_items:
+            keep = list(seen)[-max_items:]
+            profile[seen_key] = set(keep)
+
+    save_current_user_state()
+    return True
+
+
+def has_item_seen(market, item_id, namespace=None):
+    key = _seen_key(item_id, namespace)
+    if not key:
+        return False
+    seen = state.get(f"{market}_seen") or set()
+    legacy = str(item_id or "").strip()
+    return key in seen or legacy in seen or item_id in seen
+
+
+def download_image_bytes(url, referer=None, timeout=15):
+    if not url:
+        return None
+    url = str(url).strip()
+    if url.startswith("//"):
+        url = f"https:{url}"
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return None
+
+    try:
+        response = requests.get(
+            url,
+            headers={
+                "User-Agent": USER_AGENTS[int(time.time()) % len(USER_AGENTS)],
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                **({"Referer": referer} if referer else {}),
+            },
+            timeout=timeout,
+            allow_redirects=True,
+        )
+        if response.status_code != 200:
+            log.warning("Image download bad status %s url=%s", response.status_code, url)
+            return None
+
+        content = response.content or b""
+        content_type = (response.headers.get("content-type") or "").lower()
+        looks_like_image = content.startswith((b"\xff\xd8", b"\x89PNG", b"GIF8", b"RIFF"))
+        if not content_type.startswith("image/") and not looks_like_image:
+            log.warning("Image download wrong content-type %s url=%s", content_type, url)
+            return None
+        if len(content) < 1000:
+            log.warning("Image download too small url=%s size=%s", url, len(content))
+            return None
+        return content
+    except Exception as e:
+        log.warning("Image download failed: %s url=%s", e, url)
+        return None
 
 
 def get_jpy_to_eur() -> float:
