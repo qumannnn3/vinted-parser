@@ -21,6 +21,7 @@ from shared import (
     has_brand_disclaimer,
     has_item_seen,
     is_market_run_current,
+    is_unwanted_item_text,
     keyword_matches_text,
     log,
     mark_item_seen,
@@ -52,6 +53,9 @@ MERCARI_EMPTY_BRAND_VALUES = {
 MERCARI_AMBIGUOUS_TEXT_BRAND_TERMS = {
     "billionaire boys club": {"icecream"},
     "cav empt": {"ce"},
+}
+MERCARI_EXTRA_TEXT_BRAND_TERMS = {
+    "robin jeans": ["robin's jean", "robins jean", "robin jean", "robin"],
 }
 
 MERCARI_BLOCKED_WORDS = [
@@ -137,7 +141,9 @@ def _brand_tokens(brand):
 
 def _text_brand_tokens(brand):
     ambiguous = MERCARI_AMBIGUOUS_TEXT_BRAND_TERMS.get(str(brand or "").lower().strip(), set())
-    return [token for token in _brand_tokens(brand) if token.lower().replace(" ", "") not in ambiguous]
+    brand_key = str(brand or "").lower().strip()
+    tokens = [*_brand_tokens(brand), *MERCARI_EXTRA_TEXT_BRAND_TERMS.get(brand_key, [])]
+    return [token for token in dict.fromkeys(tokens) if token.lower().replace(" ", "") not in ambiguous]
 
 
 def _mercari_brand_text(item):
@@ -176,6 +182,8 @@ def mercari_item_kind(item):
 
 def deep_fashion_kind(item):
     text = _mercari_text_blob(item)
+    if is_unwanted_item_text(text):
+        return ""
     if _has_any_term(text, MERCARI_BLOCKED_WORDS):
         return ""
     if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
