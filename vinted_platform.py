@@ -5,6 +5,7 @@ import json as _json
 import random
 import time
 from io import BytesIO
+from urllib.parse import urljoin
 
 import requests
 
@@ -20,12 +21,16 @@ from shared import (
     brand_match_terms,
     format_msk_timestamp,
     has_brand_disclaimer,
+    has_item_seen,
+    is_market_run_current,
     keyword_matches_text,
     log,
+    mark_item_seen,
     market_search_queries,
     notification_chat_ids,
     publish_age_hours,
     run_telegram_coroutine,
+    sleep_while_market_running,
     state,
     translate_to_ru,
     vinted_price_bounds,
@@ -394,26 +399,49 @@ def format_vinted_message(item, domain, title, title_ru, price, curr, link, ts_d
 
 
 def get_vinted_photo_url(item):
+    candidates = []
     photos = item.get("photos") or []
 
-    if not photos and item.get("photo"):
-        photos = [item.get("photo")]
-
-    if isinstance(photos, dict):
+    if isinstance(photos, (dict, str)):
         photos = [photos]
+    if item.get("photo"):
+        photos = [item.get("photo"), *photos]
 
-    if not photos:
-        return ""
+    candidates.extend(photos)
+    for path in (
+        "photo",
+        "item_box.photo",
+        "photo.high_resolution.url",
+        "photos.0.high_resolution.url",
+        "photo.full_size_url",
+        "photos.0.full_size_url",
+        "photo.url",
+        "photos.0.url",
+        "photo.thumb_url",
+        "photos.0.thumb_url",
+    ):
+        value = _get_nested(item, path)
+        if value:
+            candidates.append(value)
 
-    photo = photos[0] or {}
-
-    return (
-        _get_nested(photo, "high_resolution.url")
-        or photo.get("full_size_url")
-        or photo.get("url")
-        or photo.get("thumb_url")
-        or ""
-    )
+    for photo in candidates:
+        if isinstance(photo, str) and photo.strip():
+            return photo.strip()
+        if not isinstance(photo, dict):
+            continue
+        for path in (
+            "high_resolution.url",
+            "full_size_url",
+            "full_size_url_no_suffix",
+            "url",
+            "thumb_url",
+            "thumbnail_url",
+            "image_url",
+        ):
+            value = _get_nested(photo, path) if "." in path else photo.get(path)
+            if value:
+                return str(value).strip()
+    return ""
 
 
 def download_vinted_photo(domain, photo_url):
@@ -422,6 +450,7 @@ def download_vinted_photo(domain, photo_url):
 
     try:
         session = get_vinted_session(domain)
+        photo_url = urljoin(f"https://{domain}/", str(photo_url).strip())
 
         headers = {
             "User-Agent": random.choice(USER_AGENTS),
@@ -463,8 +492,8 @@ def download_vinted_photo(domain, photo_url):
         return None
 
 
-async def _send_vinted_item(bot_app, photo_data, msg):
-    if not state["vinted_running"]:
+async def _send_vinted_item(bot_app, photo_data, msg, run_id):
+    if not is_market_run_current("vinted", run_id):
         return
     chat_ids = notification_chat_ids()
 
@@ -473,7 +502,7 @@ async def _send_vinted_item(bot_app, photo_data, msg):
 
     async def send_all():
         for chat_id in chat_ids:
-            if not state["vinted_running"]:
+            if not is_market_run_current("vinted", run_id):
                 return
             if photo_data:
                 try:
@@ -505,6 +534,7 @@ async def _send_vinted_item(bot_app, photo_data, msg):
 
 
 def _vinted_loop_inner(bot_app):
+    run_id = state.get("vinted_run_id", 0)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -517,43 +547,45 @@ def _vinted_loop_inner(bot_app):
 
     for _, domain in active_regions:
         init_vinted(domain)
-        time.sleep(2)
+        sleep_while_market_running("vinted", run_id, 2)
 
     log.info("Vinted мониторинг запущен")
     log.info("Vinted active brands: %s", len(state["active_brands"] or ALL_BRANDS))
     log.info("Vinted active regions: %s", ", ".join(f".{code}" for code, _ in active_regions))
 
-    while state["vinted_running"]:
+    while is_market_run_current("vinted", run_id):
         brands = list(state["active_brands"] or ALL_BRANDS)
         random.shuffle(brands)
 
         state["vinted_stats"]["cycles"] += 1
 
         for brand in brands:
-            if not state["vinted_running"]:
+            if not is_market_run_current("vinted", run_id):
                 break
 
             for query, keyword in market_search_queries(brand, "vinted"):
-                if not state["vinted_running"]:
+                if not is_market_run_current("vinted", run_id):
                     break
 
                 for _, domain in active_vinted_region_items():
-                    if not state["vinted_running"]:
+                    if not is_market_run_current("vinted", run_id):
                         break
 
                     items = fetch_vinted(query, domain)
 
                     if items == "BAN":
-                        time.sleep(random.randint(60, 120))
+                        sleep_while_market_running("vinted", run_id, random.randint(60, 120))
                         continue
 
                     market_items = None
 
                     old_item_streak = 0
                     for item in items or []:
+                        if not is_market_run_current("vinted", run_id):
+                            break
                         iid = item.get("id")
 
-                        if iid in state["vinted_seen"]:
+                        if not iid or has_item_seen("vinted", iid, domain):
                             continue
 
                         relevance, age_hours = vinted_relevance_status(item, brand)
@@ -641,6 +673,8 @@ def _vinted_loop_inner(bot_app):
                         ts_d = parse_vinted_ts(item)
                         photo_url = get_vinted_photo_url(item)
                         photo_data = download_vinted_photo(domain, photo_url)
+                        if not is_market_run_current("vinted", run_id):
+                            break
 
                         msg = format_vinted_message(
                             item,
@@ -657,29 +691,31 @@ def _vinted_loop_inner(bot_app):
                             market_line,
                         )
 
-                        state["vinted_seen"].add(iid)
+                        if not mark_item_seen("vinted", iid, domain):
+                            continue
                         state["vinted_stats"]["found"] += 1
 
                         log.info("FOUND Vinted: %s — %s", title, price)
 
-                        loop.run_until_complete(_send_vinted_item(bot_app, photo_data, msg))
+                        loop.run_until_complete(_send_vinted_item(bot_app, photo_data, msg, run_id))
 
-                    time.sleep(random.uniform(10, 18))
+                    sleep_while_market_running("vinted", run_id, random.uniform(10, 18))
 
-            time.sleep(random.uniform(12, 25))
+            sleep_while_market_running("vinted", run_id, random.uniform(12, 25))
 
-        if state["vinted_running"]:
-            time.sleep(state["vinted_interval"])
+        if is_market_run_current("vinted", run_id):
+            sleep_while_market_running("vinted", run_id, state["vinted_interval"])
 
     loop.close()
 
 
 def vinted_loop(bot_app):
-    while state["vinted_running"]:
+    run_id = state.get("vinted_run_id", 0)
+    while is_market_run_current("vinted", run_id):
         try:
             _vinted_loop_inner(bot_app)
         except Exception as e:
             log.exception("Vinted loop crashed: %s", e)
-            time.sleep(15)
+            sleep_while_market_running("vinted", run_id, 15)
         else:
             break
