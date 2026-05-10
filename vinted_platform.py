@@ -23,6 +23,7 @@ from shared import (
     has_brand_disclaimer,
     has_item_seen,
     is_market_run_current,
+    is_unwanted_item_text,
     keyword_matches_text,
     log,
     mark_item_seen,
@@ -238,6 +239,8 @@ def _vinted_text_blob(item):
 
 def is_deep_fashion_vinted_item(item):
     text = _vinted_text_blob(item)
+    if is_unwanted_item_text(text):
+        return False
     if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
         return False
     if _has_any_term(text, BAD_WORDS):
@@ -267,6 +270,8 @@ def vinted_has_brand_disclaimer(item, brand):
 
 def vinted_fashion_kind(item):
     text = _vinted_text_blob(item)
+    if is_unwanted_item_text(text):
+        return ""
 
     groups = [
         ("shoes", ["sneaker", "sneakers", "shoe", "shoes", "boots", "loafer", "sandals", "обувь", "кроссовки", "ботинки"]),
