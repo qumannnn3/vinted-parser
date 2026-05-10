@@ -4,6 +4,7 @@ import inspect
 import random
 import re
 import time
+from io import BytesIO
 
 from shared import (
     DEEP_FASHION_BLOCKED_WORDS,
@@ -14,15 +15,20 @@ from shared import (
     USER_AGENTS,
     age_in_range,
     brand_match_terms,
+    download_image_bytes,
     format_msk_timestamp,
     get_jpy_to_eur,
     has_brand_disclaimer,
+    has_item_seen,
+    is_market_run_current,
     keyword_matches_text,
     log,
+    mark_item_seen,
     market_search_queries,
     notification_chat_ids,
     publish_age_hours,
     run_telegram_coroutine,
+    sleep_while_market_running,
     state,
     translate_to_ru,
     _has_any_term,
@@ -205,6 +211,30 @@ def _best_mercari_image_url(url):
     return url
 
 
+def _mercari_image_url(item):
+    thumbs = item.get("thumbnails") or item.get("item_images") or item.get("images") or []
+    if isinstance(thumbs, (dict, str)):
+        thumbs = [thumbs]
+
+    candidates = [
+        item.get("image"),
+        item.get("imageURL"),
+        item.get("image_url"),
+        item.get("thumbnail"),
+    ]
+    candidates.extend(thumbs)
+
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return _best_mercari_image_url(candidate)
+        if isinstance(candidate, dict):
+            for key in ("url", "image_url", "imageURL", "src", "thumbnail"):
+                value = candidate.get(key)
+                if value:
+                    return _best_mercari_image_url(value)
+    return ""
+
+
 def mercari_market_price_jpy(items, target_item, brand):
     from market_price import calculate_market_price
 
@@ -259,11 +289,10 @@ def _normalize_mercari_item(item):
         default=None,
     )
     thumbnails = _obj_get(item, "thumbnails", "item_images", "images", default=[]) or []
-    thumb = _obj_get(item, "imageURL", "image_url", "thumbnail", default="")
-    if not thumb and thumbnails:
-        first = thumbnails[0]
-        thumb = first if isinstance(first, str) else _obj_get(first, "url", "image_url", "src", default="")
-    thumb = _best_mercari_image_url(thumb)
+    thumb = _mercari_image_url({
+        "thumbnails": thumbnails,
+        "imageURL": _obj_get(item, "imageURL", "image_url", "thumbnail", default=""),
+    })
     url = _mercari_item_url(item_id, url)
     return {
         "id": str(item_id or ""),
@@ -326,8 +355,8 @@ def format_mercari_message(item, name, name_ru, price_str, link):
     )
 
 
-async def _send_mercari_item(bot_app, thumb, msg):
-    if not state["mercari_running"]:
+async def _send_mercari_item(bot_app, photo_data, msg, run_id):
+    if not is_market_run_current("mercari", run_id):
         return
     chat_ids = notification_chat_ids()
     if not chat_ids or not bot_app:
@@ -335,13 +364,15 @@ async def _send_mercari_item(bot_app, thumb, msg):
 
     async def send_all():
         for chat_id in chat_ids:
-            if not state["mercari_running"]:
+            if not is_market_run_current("mercari", run_id):
                 return
-            if thumb:
+            if photo_data:
                 try:
+                    photo_file = BytesIO(photo_data)
+                    photo_file.name = "mercari.jpg"
                     await bot_app.bot.send_photo(
                         chat_id=chat_id,
-                        photo=thumb,
+                        photo=photo_file,
                         caption=msg,
                         parse_mode="HTML",
                     )
@@ -377,32 +408,35 @@ async def _close_mercari_api():
 
 def mercari_loop(bot_app):
     global mercari_api
+    run_id = state.get("mercari_run_id", 0)
     mercari_api = None
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     log.info("Mercari мониторинг запущен")
 
-    while state["mercari_running"]:
+    while is_market_run_current("mercari", run_id):
         brands = list(state["active_brands"])
         random.shuffle(brands)
         state["mercari_stats"]["cycles"] += 1
 
         for brand in brands:
-            if not state["mercari_running"]:
+            if not is_market_run_current("mercari", run_id):
                 break
             for query, keyword in market_search_queries(brand, "mercari"):
-                if not state["mercari_running"]:
+                if not is_market_run_current("mercari", run_id):
                     break
                 items = loop.run_until_complete(fetch_mercari(query))
                 market_items = None
                 old_item_streak = 0
                 for item in items or []:
+                    if not is_market_run_current("mercari", run_id):
+                        break
                     iid = item.get("id")
                     name = item.get("name", "?")
                     if not iid:
                         log.info("SKIP Mercari no item id: %s", name[:60])
                         continue
-                    if iid in state["mercari_seen"]:
+                    if has_item_seen("mercari", iid):
                         continue
 
                     try:
@@ -451,9 +485,8 @@ def mercari_loop(bot_app):
 
                     old_item_streak = 0
 
-                    thumbs = item.get("thumbnails") or item.get("item_images") or []
-                    thumb = (thumbs[0].get("url") or thumbs[0].get("image_url", "")) if thumbs else ""
-                    thumb = _best_mercari_image_url(thumb)
+                    thumb = _mercari_image_url(item)
+                    photo_data = download_image_bytes(thumb, referer="https://jp.mercari.com/") if thumb else None
                     link = item.get("url") or f"https://jp.mercari.com/item/{iid}"
                     if not link or link.rstrip("/").endswith("/item"):
                         log.info("SKIP Mercari bad link id=%r: %s", iid, name[:60])
@@ -490,16 +523,19 @@ def mercari_loop(bot_app):
                             f"<b>Рынок:</b> ~¥{market_jpy:,}, ниже на {discount}% · {market_count} сравн."
                         )
 
+                    if not is_market_run_current("mercari", run_id):
+                        break
                     msg = format_mercari_message(item, name, name_ru, price_str, link)
-                    state["mercari_seen"].add(iid)
+                    if not mark_item_seen("mercari", iid):
+                        continue
                     state["mercari_stats"]["found"] += 1
                     log.info("FOUND Mercari: %s — ¥%s", name, price)
-                    loop.run_until_complete(_send_mercari_item(bot_app, thumb, msg))
+                    loop.run_until_complete(_send_mercari_item(bot_app, photo_data, msg, run_id))
 
-                time.sleep(random.uniform(8, 15))
+                sleep_while_market_running("mercari", run_id, random.uniform(8, 15))
 
-        if state["mercari_running"]:
-            time.sleep(state["mercari_interval"])
+        if is_market_run_current("mercari", run_id):
+            sleep_while_market_running("mercari", run_id, state["mercari_interval"])
     try:
         loop.run_until_complete(_close_mercari_api())
     except Exception as e:
