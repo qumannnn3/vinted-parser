@@ -21,6 +21,7 @@ from shared import (
     format_msk_timestamp,
     has_brand_disclaimer,
     has_item_seen,
+    is_unwanted_item_text,
     keyword_matches_text,
     log,
     mark_item_seen,
@@ -120,6 +121,8 @@ def grailed_has_brand_disclaimer(item, brand):
 
 def is_relevant_grailed_item(item, brand):
     text = _text_blob(item)
+    if is_unwanted_item_text(text):
+        return False
     if _has_any_term(text, GRAILED_BLOCKED_WORDS):
         return False
     if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
@@ -134,6 +137,8 @@ def is_relevant_grailed_item(item, brand):
 def grailed_fashion_kind(item):
     raw = item.get("_raw", item) if isinstance(item, dict) else item
     text = _text_blob(raw)
+    if is_unwanted_item_text(text):
+        return ""
     if _has_any_term(text, GRAILED_BLOCKED_WORDS):
         return ""
     if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
