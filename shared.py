@@ -84,6 +84,24 @@ DEEP_FASHION_BLOCKED_WORDS = [
     "baby", "kids", "child", "children", "ベビー", "キッズ", "子供",
 ]
 
+UNWANTED_ITEM_TERMS = [
+    "loafer", "loafers", "penny loafer", "penny loafers", "sport loafer", "sport loafers",
+    "derby", "derbies", "derby shoes", "dress shoes", "formal shoes", "oxford shoes",
+    "monk strap", "monk-strap", "brogue", "brogues", "moccasin", "moccasins",
+    "pump", "pumps", "heel", "heels", "high heels", "stiletto", "stilettos",
+    "sandal", "sandals", "flat shoes", "ballet flats", "ballerina", "mules",
+    "glasses", "sunglasses", "eyeglasses", "eyewear", "optical", "frames",
+    "blouse", "blouses",
+    "туфли", "лоферы", "лофер", "дерби", "оксфорды", "каблуки", "босоножки",
+    "сандалии", "балетки", "очки", "солнцезащитные очки", "блузка", "блуза",
+    "mokasyny", "mokasyn", "lofery", "pantofle", "czolenka", "czółenka",
+    "szpilki", "obcasy", "sandaly", "sandały", "okulary", "bluzka",
+    "ローファー", "ダービー", "革靴", "オックスフォード", "パンプス", "ヒール",
+    "サンダル", "バレエシューズ", "メガネ", "眼鏡", "サングラス", "ブラウス",
+    "로퍼", "더비", "구두", "옥스포드", "펌프스", "힐", "샌들", "플랫슈즈",
+    "안경", "선글라스", "블라우스",
+]
+
 DEEP_FASHION_SIZE_PATTERN = re.compile(
     r"(?<![a-z0-9])("
     r"xxs|xs|s|m|l|xl|xxl|xxxl|"
@@ -976,6 +994,10 @@ def _contains_term(text, term):
 
 def _has_any_term(text, terms):
     return any(_contains_term(text, term) for term in terms)
+
+
+def is_unwanted_item_text(text):
+    return _has_any_term(str(text or "").lower(), UNWANTED_ITEM_TERMS)
 
 
 KEYWORD_ALIASES = {
