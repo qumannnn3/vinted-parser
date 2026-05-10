@@ -18,6 +18,7 @@ from shared import (
     get_fx_rate,
     has_item_seen,
     is_market_run_current,
+    is_unwanted_item_text,
     keyword_matches_text,
     log,
     mark_item_seen,
@@ -124,7 +125,7 @@ def _text_blob(item):
 
 def _has_blocked_word(item):
     text = _text_blob(item)
-    return any(word.lower() in text for word in FRUITS_BLOCKED_WORDS)
+    return is_unwanted_item_text(text) or any(word.lower() in text for word in FRUITS_BLOCKED_WORDS)
 
 
 def fruits_matches_keyword(item, keyword):
@@ -147,6 +148,8 @@ def is_relevant_fruits_item(item, brand):
 
 
 def fruits_fashion_kind(item):
+    if is_unwanted_item_text(_text_blob(item)):
+        return ""
     category = str(item.get("category") or "")
     category_map = {
         "상의": "tops",
