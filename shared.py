@@ -124,7 +124,7 @@ BRAND_ALIASES = {
     "gucci": ["グッチ", "구찌"],
     "chanel": ["シャネル", "샤넬"],
     "jeremy scott": ["jeremyscott"],
-    "undercover": ["under cover", "アンダーカバー"],
+    "undercover": ["under cover", "undercoverism", "アンダーカバー", "アンダーカバーイズム"],
     "comme des garcons": ["comme des garçons", "comme des garcon", "cdg", "コムデギャルソン", "꼼데가르송"],
     "yohji yamamoto": ["yohji", "ヨウジヤマモト", "요지 야마모토"],
     "vetements": ["vetement", "ヴェトモン", "베트멍"],
@@ -146,7 +146,7 @@ BRAND_ALIASES = {
     "y-3": ["y3", "yohji adidas", "ワイスリー"],
     "lgb": ["le grand bleu", "ルグランブルー"],
     "ed hardy": ["edhardy"],
-    "true religion": ["truereligion"],
+    "true religion": ["truereligion", "トゥルーレリジョン"],
     "guiseppe zanotti": ["giuseppe zanotti", "giuseppezanotti", "zanotti", "ジュゼッペザノッティ"],
     "arcteryx": ["arc'teryx", "arc teryx", "arc-teryx", "veilance", "アークテリクス"],
     "rick owens": ["rickowens", "drkshdw", "リックオウエンス", "릭 오웬스"],
@@ -161,15 +161,15 @@ BRAND_ALIASES = {
     "phillipp plein": ["philipp plein", "philip plein", "plein"],
     "mastermind": ["mastermind japan", "mastermind world", "マスターマインド"],
     "alexander mqueen": ["alexander mcqueen", "mcqueen"],
-    "cav empt": ["cavempt", "c.e", "c.e cavempt", "シーイー"],
-    "billionaire boys club": ["bbc ice cream", "icecream"],
+    "cav empt": ["cavempt", "cav empt", "c.e", "c.e.", "c.e cavempt", "シーイー", "キャブエンプト"],
+    "billionaire boys club": ["bbc", "bbc ice cream", "bbc icecream", "bbcicecream", "icecream", "ビリオネアボーイズクラブ", "ビリオネア・ボーイズ・クラブ"],
     "vivienne westwood": ["vivienne", "ヴィヴィアン"],
     "issey miyake": ["issey", "イッセイミヤケ"],
     "if six was nine": ["ifsixwasnine", "if six was9", "ifsixwas9"],
-    "cp company": ["c.p. company", "c.p company", "cpcompany"],
+    "cp company": ["c.p. company", "c.p company", "c.p.company", "cpcompany", "cp.company", "シーピーカンパニー"],
     "laoboutin": ["louboutin", "christian louboutin", "ルブタン"],
     "robin jeans": ["robin's jeans", "robins jeans"],
-    "гоша рубчинский": ["gosha rubchinskiy", "gosha rubchinsky", "gosha rubchinskiy"],
+    "гоша рубчинский": ["gosha rubchinskiy", "gosha rubchinsky", "gosha rubchinskiy", "ゴーシャラブチンスキー"],
     "ferragamo": ["salvatore ferragamo"],
     "marcelo burlon": ["marcelo burlon county of milan", "county of milan"],
     "erd": ["enfants riches deprimes", "enfants riches déprimés"],
@@ -857,7 +857,8 @@ def _contains_term(text, term):
     if not term:
         return False
     if re.fullmatch(r"[a-z0-9][a-z0-9 .&'/-]*[a-z0-9]", term):
-        pattern = r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])"
+        boundary = r"[a-z0-9.]" if "." in term else r"[a-z0-9]"
+        pattern = rf"(?<!{boundary})" + re.escape(term) + rf"(?!{boundary})"
         return re.search(pattern, text) is not None
     return term in text
 
