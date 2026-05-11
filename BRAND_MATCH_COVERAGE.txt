@@ -1,0 +1,243 @@
+Total brands: 80
+Every brand below has automatic normalized match terms and query variants.
+
+- stone island
+  query_variants: stone island, stoneisland, stone isl, ストーンアイランド
+  match_terms_sample: stone island, stoneisland, stone isl, stoneisl, ストーンアイランド, ストンアイランド
+- balenciaga
+  query_variants: balenciaga, バレンシアガ, 발렌시아가
+  match_terms_sample: balenciaga, バレンシアガ, 발렌시아가
+- raf simons
+  query_variants: raf simons, rafsimons, ラフシモンズ
+  match_terms_sample: raf simons, rafsimons, ラフシモンズ
+- bape
+  query_variants: bape, a bathing ape, abathingape, エイプ, 베이프
+  match_terms_sample: bape, a bathing ape, abathingape, エイプ, 베이프
+- aape
+  query_variants: aape, aape by a bathing ape
+  match_terms_sample: aape, aape by a bathing ape, aapebyabathingape
+- gucci
+  query_variants: gucci, グッチ, 구찌
+  match_terms_sample: gucci, グッチ, 구찌
+- chanel
+  query_variants: chanel, シャネル, 샤넬
+  match_terms_sample: chanel, シャネル, 샤넬
+- jeremy scott
+  query_variants: jeremy scott, jeremyscott
+  match_terms_sample: jeremy scott, jeremyscott
+- undercover
+  query_variants: undercover, under cover, undercoverism, アンダーカバー, アンダーカバーイズム, 언더커버
+  match_terms_sample: undercover, under cover, undercoverism, アンダーカバー, アンダカバ, アンダーカバーイズム, アンダカバイズム, 언더커버
+- comme des garcons
+  query_variants: comme des garcons, comme des garçons, comme des garcon, cdg, コムデギャルソン, 꼼데가르송, commedesgarcons
+  match_terms_sample: comme des garcons, commedesgarcons, comme des garçons, commedesgarons, comme des garcon, commedesgarcon, cdg, コムデギャルソン, 꼼데가르송
+- yohji yamamoto
+  query_variants: yohji yamamoto, yohji, yohji yamamoto pour homme, y's, ys, yohji y's, s'yte, syte
+  match_terms_sample: yohji yamamoto, yohjiyamamoto, yohji, yohji yamamoto pour homme, yohjiyamamotopourhomme, y's, ys, yohji y's, yohjiys, s'yte, syte, wildside, wild side, ヨウジヤマモト, 요지 야마모토, 요지야마모토, 와이즈, 와일드사이드, 와일드 사이드
+- vetements
+  query_variants: vetements, vetement, vtmnts, ヴェトモン, 베트멍
+  match_terms_sample: vetements, vetement, vtmnts, ヴェトモン, ェトモン, 베트멍
+- palm angels
+  query_variants: palm angels, palmangels
+  match_terms_sample: palm angels, palmangels
+- maison margiela
+  query_variants: maison margiela, margiela, maison martin margiela, martin margiela, 마르지엘라, maisonmargiela
+  match_terms_sample: maison margiela, maisonmargiela, margiela, maison martin margiela, maisonmartinmargiela, martin margiela, martinmargiela, 마르지엘라
+- givenchy
+  query_variants: givenchy, ジバンシィ, ジバンシー
+  match_terms_sample: givenchy, ジバンシィ, ジバンシー, ジバンシ
+- burberry
+  query_variants: burberry, バーバリー, 버버리
+  match_terms_sample: burberry, バーバリー, ババリ, 버버리
+- supreme
+  query_variants: supreme, シュプリーム, 슈프림
+  match_terms_sample: supreme, シュプリーム, シュプリム, 슈프림
+- amiri
+  query_variants: amiri, アミリ, 아미리
+  match_terms_sample: amiri, アミリ, 아미리
+- acne studios
+  query_variants: acne studios, acne, アクネ, 아크네, acnestudios
+  match_terms_sample: acne studios, acnestudios, acne, アクネ, 아크네
+- alyx
+  query_variants: alyx, 1017 alyx 9sm, alyx studio
+  match_terms_sample: alyx, 1017 alyx 9sm, 1017alyx9sm, alyx studio, alyxstudio
+- tornado mart
+  query_variants: tornado mart, tornadomart, トルネードマート
+  match_terms_sample: tornado mart, tornadomart, トルネードマート, トルネドマト
+- 14th addiction
+  query_variants: 14th addiction, fourteenth addiction, 14thaddiction
+  match_terms_sample: 14th addiction, 14thaddiction, fourteenth addiction, fourteenthaddiction
+- project g/r
+  query_variants: project g/r, project gr, projectgr, grailz, grailz project, grailzproject, グレイルズ, 그레일즈
+  match_terms_sample: project g r, projectgr, project gr, grailz, grailz project, grailzproject, グレイルズ, 그레일즈
+- hysteric glamour
+  query_variants: hysteric glamour, hysterics, hysteric, ヒステリックグラマー, hysteric glamor, thee hysteric xxx, ヒステリック, ヒスガール
+  match_terms_sample: hysteric glamour, hystericglamour, hysterics, hysteric, ヒステリックグラマー, ヒステリックグラマ, hysteric glamor, hystericglamor, thee hysteric xxx, theehystericxxx, ヒステリック, ヒスガール, ヒスガル, 히스테릭글래머, 히스테릭 글래머, 히스테릭, 히스걸
+- dolce&gabbana
+  query_variants: dolce&gabbana, dolce gabbana, dolce and gabbana, d&g, ドルチェ&ガッバーナ, dolcegabbana
+  match_terms_sample: dolce&gabbana, dolcegabbana, dolce and gabbana, dolce gabbana, dolceandgabbana, dolce & gabbana, d&g, dg, d and g, d g, ドルチェ&ガッバーナ, ドルチェガッバナ, ドルチェ and ガッバーナ, ドルチェ ガッバーナ
+- number nine
+  query_variants: number nine, number (n)ine, number n ine, numbernine, ナンバーナイン
+  match_terms_sample: number nine, numbernine, number (n)ine, number n ine, ナンバーナイン, ナンバナイン
+- grailz project
+  query_variants: grailz project, grailz, grailzproject, project g/r, project gr, projectgr, project g r, projtct
+  match_terms_sample: grailz project, grailzproject, grailz, project g r, projectgr, project gr, projtct, グレイルズ, 그레일즈
+- y-3
+  query_variants: y-3, y3, yohji adidas, ワイスリー, 와이쓰리, 와이스리, y 3
+  match_terms_sample: y-3, y3, y 3, yohji adidas, yohjiadidas, ワイスリー, ワイスリ, 와이쓰리, 와이스리
+- lgb
+  query_variants: lgb, le grand bleu, ルグランブルー
+  match_terms_sample: lgb, le grand bleu, legrandbleu, ルグランブルー, ルグランブル
+- ed hardy
+  query_variants: ed hardy, edhardy
+  match_terms_sample: ed hardy, edhardy
+- mcm
+  query_variants: mcm
+  match_terms_sample: mcm
+- true religion
+  query_variants: true religion, truereligion, トゥルーレリジョン
+  match_terms_sample: true religion, truereligion, トゥルーレリジョン, トゥルレリジョン
+- guiseppe zanotti
+  query_variants: guiseppe zanotti, giuseppe zanotti, giuseppezanotti, zanotti, ジュゼッペザノッティ, guiseppezanotti
+  match_terms_sample: guiseppe zanotti, guiseppezanotti, giuseppe zanotti, giuseppezanotti, zanotti, ジュゼッペザノッティ
+- arcteryx
+  query_variants: arcteryx, arc'teryx, arc teryx, arc-teryx, veilance, アークテリクス
+  match_terms_sample: arcteryx, arc'teryx, arc teryx, arc-teryx, veilance, アークテリクス, アクテリクス
+- rick owens
+  query_variants: rick owens, rickowens, drkshdw, リックオウエンス, 릭 오웬스
+  match_terms_sample: rick owens, rickowens, drkshdw, リックオウエンス, 릭 오웬스, 릭오웬스
+- evisu
+  query_variants: evisu, エヴィス, エビス
+  match_terms_sample: evisu, エヴィス, エィス, エビス
+- saint laurent
+  query_variants: saint laurent, ysl, yves saint laurent, saintlaurent, サンローラン
+  match_terms_sample: saint laurent, saintlaurent, ysl, yves saint laurent, yvessaintlaurent, サンローラン, サンロラン
+- neighborhood
+  query_variants: neighborhood, nbhd, ネイバーフッド
+  match_terms_sample: neighborhood, nbhd, ネイバーフッド, ネイバフッド
+- prada
+  query_variants: prada
+  match_terms_sample: prada
+- dior
+  query_variants: dior, christian dior, ディオール, 디올
+  match_terms_sample: dior, christian dior, christiandior, ディオール, ディオル, 디올
+- jaded london
+  query_variants: jaded london, jadedlondon
+  match_terms_sample: jaded london, jadedlondon
+- diesel
+  query_variants: diesel
+  match_terms_sample: diesel
+- alpha industries
+  query_variants: alpha industries, alpha, alphaindustries
+  match_terms_sample: alpha industries, alphaindustries, alpha
+- glory boyz
+  query_variants: glory boyz, gloryboyz, glo gang, gbe
+  match_terms_sample: glory boyz, gloryboyz, glo gang, glogang, gbe
+- ralph lauren
+  query_variants: ralph lauren, polo ralph lauren, ralphlauren
+  match_terms_sample: ralph lauren, ralphlauren, polo ralph lauren, poloralphlauren
+- louis vuitton
+  query_variants: louis vuitton, lv, ルイヴィトン, 루이비통, louisvuitton
+  match_terms_sample: louis vuitton, louisvuitton, lv, ルイヴィトン, ルイィトン, 루이비통
+- phillipp plein
+  query_variants: phillipp plein, philipp plein, philip plein, plein, phillippplein
+  match_terms_sample: phillipp plein, phillippplein, philipp plein, philippplein, philip plein, philipplein, plein
+- versace
+  query_variants: versace
+  match_terms_sample: versace
+- rock revival
+  query_variants: rock revival, rockrevival
+  match_terms_sample: rock revival, rockrevival
+- armani
+  query_variants: armani
+  match_terms_sample: armani
+- mastermind
+  query_variants: mastermind, mastermind japan, mastermind world, マスターマインド
+  match_terms_sample: mastermind, mastermind japan, mastermindjapan, mastermind world, mastermindworld, マスターマインド, マスタマインド
+- alexander mqueen
+  query_variants: alexander mqueen, alexander mcqueen, mcqueen, alexandermqueen
+  match_terms_sample: alexander mqueen, alexandermqueen, alexander mcqueen, alexandermcqueen, mcqueen
+- cav empt
+  query_variants: cav empt, cavempt, c.e, c.e., c.e cavempt, シーイー, キャブエンプト
+  match_terms_sample: cav empt, cavempt, c e, ce, c e cavempt, cecavempt, シーイー, シイ, キャブエンプト
+- buffalo bobs
+  query_variants: buffalo bobs, buffalobobs
+  match_terms_sample: buffalo bobs, buffalobobs
+- billionaire boys club
+  query_variants: billionaire boys club, bbc, bbc ice cream, bbc icecream, bbcicecream, icecream, ビリオネアボーイズクラブ, ビリオネア・ボーイズ・クラブ
+  match_terms_sample: billionaire boys club, billionaireboysclub, bbc, bbc ice cream, bbcicecream, bbc icecream, icecream, ビリオネアボーイズクラブ, ビリオネアボイズクラブ, ビリオネア・ボーイズ・クラブ
+- acronym
+  query_variants: acronym
+  match_terms_sample: acronym
+- swear
+  query_variants: swear
+  match_terms_sample: swear
+- vivienne westwood
+  query_variants: vivienne westwood, vivienne, ヴィヴィアン, viviennewestwood
+  match_terms_sample: vivienne westwood, viviennewestwood, vivienne, ヴィヴィアン, ィィアン
+- balmain
+  query_variants: balmain
+  match_terms_sample: balmain
+- issey miyake
+  query_variants: issey miyake, issey, イッセイミヤケ, isseymiyake
+  match_terms_sample: issey miyake, isseymiyake, issey, イッセイミヤケ
+- if six was nine
+  query_variants: if six was nine, ifsixwasnine, if six was9, ifsixwas9
+  match_terms_sample: if six was nine, ifsixwasnine, if six was9, ifsixwas9
+- 20471120
+  query_variants: 20471120
+  match_terms_sample: 20471120
+- cp company
+  query_variants: cp company, c.p. company, c.p company, c.p.company, cpcompany, シーピーカンパニー
+  match_terms_sample: cp company, cpcompany, c p company, シーピーカンパニー, シピカンパニ
+- laoboutin
+  query_variants: laoboutin, louboutin, christian louboutin, ルブタン
+  match_terms_sample: laoboutin, louboutin, christian louboutin, christianlouboutin, ルブタン
+- robin jeans
+  query_variants: robin jeans, robin's jeans, robins jeans, robinjeans
+  match_terms_sample: robin jeans, robinjeans, robin's jeans, robinsjeans, robins jeans
+- гоша рубчинский
+  query_variants: гоша рубчинский, gosha rubchinskiy, gosha rubchinsky, ゴーシャラブチンスキー, гоша рубчинскии, гошарубчинский, гошарубчинскии
+  match_terms_sample: гоша рубчинский, гошарубчинский, gosha rubchinskiy, gosharubchinskiy, gosha rubchinsky, gosharubchinsky, ゴーシャラブチンスキー, ゴシャラブチンスキ, гоша рубчинскии, гошарубчинскии
+- ferragamo
+  query_variants: ferragamo, salvatore ferragamo
+  match_terms_sample: ferragamo, salvatore ferragamo, salvatoreferragamo
+- salem
+  query_variants: salem
+  match_terms_sample: salem
+- marcelo burlon
+  query_variants: marcelo burlon, marcelo burlon county of milan, county of milan, marceloburlon
+  match_terms_sample: marcelo burlon, marceloburlon, marcelo burlon county of milan, marceloburloncountyofmilan, county of milan, countyofmilan
+- erd
+  query_variants: erd, enfants riches deprimes, enfants riches déprimés
+  match_terms_sample: erd, enfants riches deprimes, enfantsrichesdeprimes, enfants riches déprimés, enfantsrichesdprims
+- chrome hearts
+  query_variants: chrome hearts, クロムハーツ, 크롬하츠, chromehearts
+  match_terms_sample: chrome hearts, chromehearts, クロムハーツ, クロムハツ, 크롬하츠
+- isabel marant
+  query_variants: isabel marant, isabelmarant
+  match_terms_sample: isabel marant, isabelmarant
+- mihara yasuhiro
+  query_variants: mihara yasuhiro, maison mihara yasuhiro, mmy, miharayasuhiro
+  match_terms_sample: mihara yasuhiro, miharayasuhiro, maison mihara yasuhiro, maisonmiharayasuhiro, mmy
+- carol cristian poell
+  query_variants: carol cristian poell, carol christian poell, ccp, carolcristianpoell
+  match_terms_sample: carol cristian poell, carolcristianpoell, carol christian poell, carolchristianpoell, ccp
+- alice hollywood
+  query_variants: alice hollywood, alicehollywood
+  match_terms_sample: alice hollywood, alicehollywood
+- moncler
+  query_variants: moncler, モンクレール, 몽클레어
+  match_terms_sample: moncler, モンクレール, モンクレル, 몽클레어
+- valentino
+  query_variants: valentino
+  match_terms_sample: valentino
+- helmut lang
+  query_variants: helmut lang, helmutlang
+  match_terms_sample: helmut lang, helmutlang
+- maison martin margiela
+  query_variants: maison martin margiela, maison margiela, martin margiela, margiela, 마르지엘라, maisonmartinmargiela
+  match_terms_sample: maison martin margiela, maisonmartinmargiela, maison margiela, maisonmargiela, martin margiela, martinmargiela, margiela, 마르지엘라
+- dsquared2
+  query_variants: dsquared2, dsquared, d squared2, d squared
+  match_terms_sample: dsquared2, dsquared, d squared2, d squared
