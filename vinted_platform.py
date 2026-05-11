@@ -32,6 +32,7 @@ from shared import (
     publish_age_hours,
     run_telegram_coroutine,
     sleep_while_market_running,
+    sort_items_newest,
     state,
     throttle_request,
     translate_to_ru,
@@ -46,7 +47,7 @@ vinted_sessions: dict[str, requests.Session] = {}
 VINTED_MIN_MARKET_SAMPLES = 1
 VINTED_MAX_MARKET_RATIO = 0.90
 VINTED_MARKET_PRICE_MAX_EUR = 5000
-VINTED_OLD_ITEM_STOP_STREAK = 8
+VINTED_OLD_ITEM_STOP_STREAK = 1_000_000_000
 
 
 def active_vinted_region_items():
@@ -135,7 +136,7 @@ def fetch_vinted(query, domain, retry=True, price_min=None, price_max=None):
         )
 
         if response.status_code == 200:
-            items = decode_response(response).get("items", [])
+            items = sort_items_newest(decode_response(response).get("items", []), parse_vinted_ts)
             if items:
                 log.info("Vinted %s -> %s товаров", domain, len(items))
             else:
@@ -366,8 +367,6 @@ def is_relevant(item, brand):
         log.info("SKIP Vinted no publish time id=%s '%s'", item.get("id"), item.get("title", "?")[:40])
         return False
 
-    if age_hours is not None:
-        log.info("SKIP Vinted age %.1fh: %s", age_hours, item.get("title", "?")[:40])
     return False
 
 
@@ -591,7 +590,6 @@ def _vinted_loop_inner(bot_app):
 
                     market_items = None
 
-                    old_item_streak = 0
                     for item in items or []:
                         if not is_market_run_current("vinted", run_id):
                             break
@@ -615,20 +613,8 @@ def _vinted_loop_inner(bot_app):
                             elif relevance == "no_time":
                                 log.info("SKIP Vinted no publish time id=%s '%s'", item.get("id"), item.get("title", "?")[:40])
                             elif relevance in ("age", "too_old") and age_hours is not None:
-                                log.info("SKIP Vinted age %.1fh: %s", age_hours, item.get("title", "?")[:40])
-                                if relevance == "too_old":
-                                    old_item_streak += 1
-                                    if old_item_streak >= VINTED_OLD_ITEM_STOP_STREAK:
-                                        log.info(
-                                            "STOP Vinted newest_first old page %s '%s': %s старых подряд",
-                                            domain,
-                                            query,
-                                            old_item_streak,
-                                        )
-                                        break
+                                pass
                             continue
-
-                        old_item_streak = 0
 
                         if keyword and not vinted_matches_keyword(item, keyword):
                             log.info("SKIP Vinted keyword '%s': %s", keyword, item.get("title", "?")[:40])
