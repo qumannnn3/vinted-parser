@@ -122,7 +122,7 @@ def normalize_market_items(
                 item_kind = kind_getter(item)
             except Exception:
                 item_kind = None
-            if item_kind and item_kind != target_kind:
+            if item_kind != target_kind:
                 continue
 
         value = _to_int_price(_safe_get(item, price_getter, _default_price_getter))
