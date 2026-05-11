@@ -33,6 +33,7 @@ from shared import (
     run_telegram_coroutine,
     sleep_while_market_running,
     state,
+    throttle_request,
     translate_to_ru,
     vinted_price_bounds,
     vinted_price_to_eur,
@@ -126,6 +127,7 @@ def fetch_vinted(query, domain, retry=True, price_min=None, price_max=None):
         for cid in CATALOG_IDS:
             params.append(("catalog_ids[]", cid))
 
+        throttle_request(f"vinted:{domain}", 0.8)
         response = session.get(
             f"https://{domain}/api/v2/catalog/items",
             params=params,
