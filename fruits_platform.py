@@ -63,7 +63,7 @@ FRUITS_ALLOWED_CATEGORIES = {
     "\uac00\ubc29", "\ubaa8\uc790", "\uc561\uc138\uc11c\ub9ac",
 }
 
-FRUITS_MIN_MARKET_SAMPLES = 1
+FRUITS_MIN_MARKET_SAMPLES = 3
 FRUITS_MAX_MARKET_RATIO = 0.90
 FRUITS_MARKET_PRICE_MAX = 10000000
 FRUITS_OLD_ITEM_STOP_STREAK = 1_000_000_000
@@ -80,6 +80,19 @@ FRUITS_ALLOWED_SHOE_TERMS = [
     "boot", "boots", "hiking", "track", "ramones", "geobasket", "dunks",
     "jordan", "air force", "air max", "yeezy", "gazelle", "samba",
     "10xl", "3xl", "runner", "tyrex", "tyrex37", "zero", "stansmith", "stan smith",
+    # generic "shoes" — catches model-named shoes with no subtype in title
+    "shoe", "shoes", "\uc288\uc988",
+    # Y-3 models
+    "qasa", "kaiwa", "terrex", "terek", "adizero", "ultraboost", "superstar",
+    "\ucf70\uc0ac", "\ud14c\ub809\uc2a4", "\uce74\uc774\uc640",  # 콰사, 테렉스, 카이와
+    # Raf Simons models
+    "orion", "cylon", "ozweego", "replicant", "antei", "solaris", "detroit",
+    # Rick Owens models
+    "geobasket", "ramones", "dunks", "megalace", "pentagram", "turbowpn",
+    # Maison Margiela / MMM
+    "tabi", "replica", "future",
+    # Mihara Yasuhiro
+    "wayne", "blakey", "peterson",
     "\u30b9\u30cb\u30fc\u30ab\u30fc", "\u30b7\u30e5\u30fc\u30ba", "\u30d6\u30fc\u30c4", "\u30c8\u30e9\u30c3\u30af",
     "\uc6b4\ub3d9\ud654", "\uc2a4\ub2c8\ucee4\uc988", "\ubd80\uce20", "\ud2b8\ub799",
     "\ub7ec\ub108", "\ud0c0\uc774\ub809\uc2a4", "\uc81c\ub85c", "\uc2a4\ud0e0\uc2a4\ubbf8\uc2a4",
@@ -166,15 +179,7 @@ def _has_blocked_word(item):
     # FruitsFamily often puts normal branded womenswear in broad categories.
     # Keep hard accessory/shoe junk filters, but don't reject normal clothing
     # just because the title says "blouse" or another broad garment word.
-    return is_unwanted_item_text(text) and not _has_any_term(
-        text,
-        [
-            "blouse", "blouses", "skirt", "dress", "one piece", "one-piece",
-            "tank top", "camisole", "leggings",
-            "\uc2a4\ucee4\ud2b8", "\uc6d0\ud53c\uc2a4", "\uce90\ubbf8\uc194", "\ub808\uae45\uc2a4",
-            "\ube14\ub77c\uc6b0\uc2a4",
-        ],
-    )
+    return is_unwanted_item_text(text) and not _has_any_term(text, _WOMENSWEAR_EXCEPTIONS)
 
 
 def fruits_matches_keyword(item, keyword):
@@ -205,8 +210,17 @@ def is_relevant_fruits_item(item, brand):
     return fruits_matches_brand(item, brand)
 
 
+_WOMENSWEAR_EXCEPTIONS = [
+    "blouse", "blouses", "skirt", "dress", "one piece", "one-piece",
+    "tank top", "camisole", "leggings",
+    "\uc2a4\ucee4\ud2b8", "\uc6d0\ud53c\uc2a4", "\uce90\ubbf8\uc194", "\ub808\uae45\uc2a4",
+    "\ube14\ub77c\uc6b0\uc2a4",
+]
+
+
 def fruits_fashion_kind(item):
-    if is_unwanted_item_text(_text_blob(item)):
+    text = _text_blob(item)
+    if is_unwanted_item_text(text) and not _has_any_term(text, _WOMENSWEAR_EXCEPTIONS):
         return ""
     if _is_unwanted_fruits_shoe(item):
         return ""
