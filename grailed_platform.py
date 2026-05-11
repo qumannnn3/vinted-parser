@@ -108,7 +108,11 @@ def grailed_matches_brand(item, brand):
             if isinstance(designer, dict) and designer.get("name"):
                 designer_names.append(designer.get("name"))
     designer_text = " ".join(str(name or "").lower() for name in designer_names)
-    return bool(designer_text and _has_any_term(designer_text, terms))
+    if designer_text and _has_any_term(designer_text, terms):
+        return True
+    # Fallback: collab items (e.g. Adidas Jeremy Scott) may have the parent
+    # brand in designers but the collab name only in the title/description.
+    return _has_any_term(_text_blob(item), terms)
 
 
 def grailed_matches_keyword(item, keyword):
