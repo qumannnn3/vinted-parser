@@ -598,12 +598,6 @@ def _vinted_loop_inner(bot_app):
                         if not iid or has_item_seen("vinted", iid, domain):
                             continue
 
-                        # Mark as seen immediately to prevent duplicate sends
-                        # when the same item appears in multiple query variants
-                        # within the same scan cycle (e.g. "stone island" + "stoneisland")
-                        if not mark_item_seen("vinted", iid, domain):
-                            continue
-
                         relevance, age_hours = vinted_relevance_status(item, brand)
                         if relevance != "ok":
                             if relevance == "deep_fashion":
@@ -697,6 +691,9 @@ def _vinted_loop_inner(bot_app):
 
                         if not is_market_run_current("vinted", run_id):
                             break
+
+                        if not mark_item_seen("vinted", iid, domain):
+                            continue
 
                         state["vinted_stats"]["found"] += 1
 
