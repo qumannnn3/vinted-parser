@@ -29,6 +29,7 @@ from shared import (
     notification_chat_ids,
     publish_age_hours,
     run_telegram_coroutine,
+    sort_items_newest,
     state,
     throttle_request,
     translate_to_ru,
@@ -47,7 +48,7 @@ GRAILED_SEARCH_URL = (
 GRAILED_MARKET_PRICE_MAX = int(os.environ.get("GRAILED_MARKET_PRICE_MAX", "100000"))
 GRAILED_MIN_MARKET_SAMPLES = int(os.environ.get("GRAILED_MIN_MARKET_SAMPLES", "1"))
 GRAILED_MAX_MARKET_RATIO = float(os.environ.get("GRAILED_MAX_MARKET_RATIO", "0.85"))
-GRAILED_OLD_ITEM_STOP_STREAK = 8
+GRAILED_OLD_ITEM_STOP_STREAK = 1_000_000_000
 
 
 GRAILED_KIND_GROUPS = [
@@ -261,7 +262,7 @@ def fetch_grailed(query, limit=80, price_min=None, price_max=None, use_age_filte
         hits = []
         for result in data.get("results") or []:
             hits.extend(result.get("hits") or [])
-        items = [_normalize_item(item) for item in hits if item]
+        items = sort_items_newest(_normalize_item(item) for item in hits if item)
         if items:
             log.info("Grailed '%s' -> %s товаров", query, len(items))
         return items
@@ -377,7 +378,6 @@ def grailed_loop(bot_app):
                 if not _is_current_run():
                     break
                 market_items = None
-                old_item_streak = 0
                 for item in items:
                     if not _is_current_run():
                         break
@@ -396,20 +396,7 @@ def grailed_loop(bot_app):
                         state["grailed_max_age_hours"],
                     )
                     if age_ok is False:
-                        age_hours = publish_age_hours(item.get("created_at"))
-                        age_label = f"{age_hours:.1f}h" if age_hours is not None else "unknown"
-                        log.info("SKIP Grailed age %s: %s", age_label, item.get("title", "?")[:60])
-                        if age_hours is not None and age_hours > float(state["grailed_max_age_hours"]):
-                            old_item_streak += 1
-                            if old_item_streak >= GRAILED_OLD_ITEM_STOP_STREAK:
-                                log.info(
-                                    "STOP Grailed newest page '%s': %s старых подряд",
-                                    query,
-                                    old_item_streak,
-                                )
-                                break
                         continue
-                    old_item_streak = 0
                     if market_items is None:
                         market_items = fetch_grailed(
                             query,
