@@ -16,9 +16,11 @@ from shared import (
     download_image_bytes,
     format_msk_timestamp,
     get_fx_rate,
+    has_brand_disclaimer,
     has_item_seen,
     is_market_run_current,
     is_unwanted_item_text,
+    is_wanted_post_text,
     keyword_matches_text,
     log,
     mark_item_seen,
@@ -60,7 +62,7 @@ query SeeProducts($filter: ProductFilter!, $offset: Int, $limit: Int, $sort: Str
 
 FRUITS_ALLOWED_CATEGORIES = {
     "\uc0c1\uc758", "\uc544\uc6b0\ud130", "\ud558\uc758", "\uc2e0\ubc1c",
-    "\uac00\ubc29", "\ubaa8\uc790", "\uc561\uc138\uc11c\ub9ac",
+    "\uac00\ubc29", "\ubaa8\uc790", "\uc561\uc138\uc11c\ub9ac", "\uc6d0\ud53c\uc2a4",
 }
 
 FRUITS_MIN_MARKET_SAMPLES = 3
@@ -191,14 +193,22 @@ def fruits_matches_brand(item, brand):
     return text_matches_brand(text, brand)
 
 
+def fruits_has_brand_disclaimer(item, brand):
+    return has_brand_disclaimer(_text_blob(item), brand)
+
+
 def is_relevant_fruits_item(item, brand):
     if str(item.get("status") or "").lower() != "selling":
         return False
     if item.get("category") not in FRUITS_ALLOWED_CATEGORIES:
         return False
+    if is_wanted_post_text(_text_blob(item)):
+        return False
     if _has_blocked_word(item):
         return False
     if _is_unwanted_fruits_shoe(item):
+        return False
+    if fruits_has_brand_disclaimer(item, brand):
         return False
     return fruits_matches_brand(item, brand)
 
@@ -226,6 +236,7 @@ def fruits_fashion_kind(item):
         "\uac00\ubc29": "bag",
         "\ubaa8\uc790": "hat",
         "\uc561\uc138\uc11c\ub9ac": "accessory",
+        "\uc6d0\ud53c\uc2a4": "dress",
     }
     if category in category_map:
         return category_map[category]
