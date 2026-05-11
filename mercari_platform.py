@@ -65,7 +65,7 @@ MERCARI_BLOCKED_WORDS = [
     "figure", "doll", "book", "magazine", "cd", "dvd", "blu-ray", "game",
     "phone", "iphone", "android", "camera", "charger", "case", "poster",
     "sticker", "card", "keychain", "時計", "腕時計", "置時計", "香水", "おもちゃ",
-    "フィギュア", "ぬいぐるみ", "本", "雑誌", "ゲーム", "スマホ", "携帯",
+    "フィギュア", "ぬいぐるみ", "雑誌", "ゲーム", "スマホ", "携帯",
     "カメラ", "充電器", "ケース", "ポスター", "ステッカー", "カード", "キーホルダー",
     "copy", "replica", "fake", "копия", "реплика", "подделка", "偽物", "コピー",
     "模倣", "ノーブランド", "no brand", "brand unknown", "ファックス コピー",
@@ -110,14 +110,16 @@ MERCARI_GOOD_CONDITION_PATTERNS = [
 MERCARI_KIND_GROUPS = [
     ("shoes", [
         "sneaker", "sneakers", "shoe", "shoes", "trainer", "trainers", "track trainer",
-        "runner", "runners", "detroit runner", "boots", "loafer", "loafers", "sandals",
+        "runner", "runners", "detroit runner", "boots", "boot", "loafer", "loafers",
+        "sandals", "sandal", "slide", "slides", "derby", "derbies", "adios", "qasa",
+        "kaiwa", "terrex", "terek", "zx torsion", "stan smith", "superstar", "wings",
         "\u30b9\u30cb\u30fc\u30ab\u30fc", "\u30b7\u30e5\u30fc\u30ba", "\u9774",
         "\u30b9\u30d4\u30fc\u30c9\u30c8\u30ec\u30fc\u30ca\u30fc", "\u30c8\u30ec\u30fc\u30ca\u30fc",
         "\u30e9\u30f3\u30ca\u30fc", "\u30c7\u30c8\u30ed\u30a4\u30c8\u30e9\u30f3\u30ca\u30fc",
         "\u30cf\u30a4\u30ab\u30c3\u30c8", "\u30ed\u30fc\u30ab\u30c3\u30c8",
         "\u30c8\u30e9\u30c3\u30af\u30c8\u30ec\u30fc\u30ca\u30fc", "\u30c8\u30e9\u30c3\u30af\u30b9\u30cb\u30fc\u30ab\u30fc",
         "\u30c8\u30e9\u30c3\u30af\u30b7\u30e5\u30fc\u30ba",
-        "スニーカー", "シューズ", "靴", "ブーツ", "サンダル",
+        "スニーカー", "シューズ", "靴", "ブーツ", "サンダル", "운동화", "스니커즈", "슈즈", "부츠", "샌들",
     ]),
     ("bag", [
         "bag", "bags", "backpack", "wallet", "shoulder bag", "tote", "pouch",
@@ -126,13 +128,15 @@ MERCARI_KIND_GROUPS = [
     ("tops", [
         "shirt", "t-shirt", "tee", "hoodie", "sweatshirt", "sweat", "sweater",
         "knit", "cardigan", "polo", "top", "blouse", "long sleeve", "ls tee",
+        "cutsew", "cut sew", "mock neck", "mockneck", "crew", "crewneck",
+        "uniform", "jersey", "soccer", "football shirt", "football jersey",
         "\u30ed\u30f3\u30b0\u30b9\u30ea\u30fc\u30d6", "\u30ed\u30f3t", "\u30ed\u30f3\u30c6\u30a3\u30fc",
         "\u30ab\u30c3\u30c8\u30bd\u30fc", "\u534a\u8896", "\u9577\u8896", "\u30c8\u30ec\u30fc\u30ca\u30fc",
         "\u30d5\u30fc\u30c7\u30a3", "\u30d5\u30fc\u30c9", "\u30dd\u30ed\u30b7\u30e3\u30c4",
         "\u30ad\u30e3\u30df\u30bd\u30fc\u30eb", "\u30bf\u30f3\u30af\u30c8\u30c3\u30d7",
         "\u30d7\u30eb\u30aa\u30fc\u30d0\u30fc", "\u30cf\u30fc\u30d5\u30b8\u30c3\u30d7",
         "\u30dc\u30fc\u30ea\u30f3\u30b0\u30b7\u30e3\u30c4", "\u958b\u895f",
-        "シャツ", "tシャツ", "パーカー", "スウェット", "ニット", "カーディガン", "ブラウス", "トップス",
+        "シャツ", "tシャツ", "パーカー", "スウェット", "ニット", "カーディガン", "ブラウス", "トップス", "モックネック", "クルー", "ユニフォーム", "ジャージ", "셔츠", "티셔츠", "후드", "후드티", "니트", "가디건", "블라우스", "탑",
     ]),
     ("outerwear", [
         "jacket", "coat", "blouson", "vest", "parka", "down jacket", "windbreaker",
@@ -141,14 +145,15 @@ MERCARI_KIND_GROUPS = [
         "\u30d6\u30eb\u30be\u30f3", "\u30b8\u30e3\u30fc\u30b8",
         "\u30e9\u30a4\u30c0\u30fc\u30b9", "\u30c0\u30a6\u30f3\u30b8\u30e3\u30b1\u30c3\u30c8",
         "\u30c6\u30fc\u30e9\u30fc\u30c9", "\u30b9\u30bf\u30b8\u30e3\u30f3",
-        "ジャケット", "コート", "ブルゾン", "ベスト", "ダウン", "アウター",
+        "ジャケット", "コート", "ブルゾン", "ベスト", "ダウン", "アウター", "자켓", "재킷", "코트", "베스트", "패딩", "아우터",
     ]),
     ("bottoms", [
         "pants", "jeans", "denim", "trousers", "shorts", "skirt", "cargo", "slacks",
+        "carpenter", "bermuda", "cuffed pants", "track pants", "cargopants",
         "\u30ba\u30dc\u30f3", "\u30dc\u30c8\u30e0", "\u30dc\u30c8\u30e0\u30b9",
         "\u30ab\u30fc\u30b4\u30d1\u30f3\u30c4", "\u30d5\u30ec\u30a2\u30d1\u30f3\u30c4", "\u30ef\u30a4\u30c9\u30d1\u30f3\u30c4",
         "\u30ec\u30ae\u30f3\u30b9", "\u30e1\u30c3\u30b7\u30e5\u30ec\u30ae\u30f3\u30b9",
-        "パンツ", "デニム", "ジーンズ", "ショーツ", "スカート", "スラックス",
+        "パンツ", "デニム", "ジーンズ", "ショーツ", "スカート", "スラックス", "トラックパンツ", "バミューダ", "カーゴ", "바지", "팬츠", "데님", "청바지", "쇼츠", "스커트", "카고",
     ]),
     ("dress", ["dress", "one piece", "one-piece", "ワンピース", "ドレス"]),
     ("accessory", [
@@ -207,10 +212,12 @@ def mercari_matches_brand(item, brand):
     brand_text = _mercari_brand_text(item)
     normalized_brand = " ".join(brand_text.replace("_", " ").split())
     if normalized_brand and normalized_brand not in MERCARI_EMPTY_BRAND_VALUES:
-        return _has_any_term(brand_text, _brand_tokens(brand))
+        from shared import text_matches_brand
+        return text_matches_brand(brand_text, brand)
 
     text = _mercari_text_blob(item)
-    return bool(text and _has_any_term(text, _text_brand_tokens(brand)))
+    from shared import text_matches_brand
+    return bool(text and text_matches_brand(text, brand, extra_terms=MERCARI_EXTRA_TEXT_BRAND_TERMS.get(str(brand or "").lower().strip(), []), exclude_compact_terms=MERCARI_AMBIGUOUS_TEXT_BRAND_TERMS.get(str(brand or "").lower().strip(), set())))
 
 
 def mercari_item_kind(item):
@@ -231,8 +238,8 @@ def _mercari_has_soft_bad_condition(text):
 
 def deep_fashion_kind(item):
     text = _mercari_text_blob(item)
-    if is_unwanted_item_text(text):
-        return ""
+    # Do not reject whole branded listings just because the item is a wallet, derby, sandal, etc.
+    # Those are real resale items for many brands. Keep only hard non-fashion/bad-condition filters below.
     if _mercari_has_soft_bad_condition(text):
         return ""
     if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
