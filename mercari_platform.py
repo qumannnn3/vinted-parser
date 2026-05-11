@@ -30,6 +30,7 @@ from shared import (
     publish_age_hours,
     run_telegram_coroutine,
     sleep_while_market_running,
+    sort_items_newest,
     state,
     throttle_request,
     translate_to_ru,
@@ -38,7 +39,7 @@ from shared import (
 )
 
 mercari_api = None
-MERCARI_OLD_ITEM_STOP_STREAK = 8
+MERCARI_OLD_ITEM_STOP_STREAK = 1_000_000_000
 MERCARI_EMPTY_BRAND_VALUES = {
     "",
     "-",
@@ -375,7 +376,9 @@ async def fetch_mercari(query, price_min=None, price_max=None, limit=30):
             price_min=state["mercari_min"] if price_min is None else price_min,
             price_max=state["mercari_max"] if price_max is None else price_max,
         )
-        items = [_normalize_mercari_item(item) for item in getattr(results, "items", [])[:limit]]
+        items = sort_items_newest(
+            _normalize_mercari_item(item) for item in getattr(results, "items", [])[:limit]
+        )
         if items:
             log.info("Mercari '%s' -> %s товаров", query, len(items))
         return items
@@ -475,7 +478,6 @@ def mercari_loop(bot_app):
                     break
                 items = loop.run_until_complete(fetch_mercari(query))
                 market_items = None
-                old_item_streak = 0
                 for item in items or []:
                     if not is_market_run_current("mercari", run_id):
                         break
@@ -517,21 +519,7 @@ def mercari_loop(bot_app):
                         state["mercari_max_age_hours"],
                     )
                     if age_ok is False:
-                        age_hours = publish_age_hours(item.get("created_at"))
-                        age_label = f"{age_hours:.1f}h" if age_hours is not None else "unknown"
-                        log.info("SKIP Mercari age %s: %s", age_label, name[:60])
-                        if age_hours is not None and age_hours > float(state["mercari_max_age_hours"]):
-                            old_item_streak += 1
-                            if old_item_streak >= MERCARI_OLD_ITEM_STOP_STREAK:
-                                log.info(
-                                    "STOP Mercari newest page '%s': %s старых подряд",
-                                    query,
-                                    old_item_streak,
-                                )
-                                break
                         continue
-
-                    old_item_streak = 0
 
                     thumb = _mercari_image_url(item)
                     photo_data = download_image_bytes(thumb, referer="https://jp.mercari.com/") if thumb else None
