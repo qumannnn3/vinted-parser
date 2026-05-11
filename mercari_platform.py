@@ -110,9 +110,10 @@ MERCARI_GOOD_CONDITION_PATTERNS = [
 MERCARI_KIND_GROUPS = [
     ("shoes", [
         "sneaker", "sneakers", "shoe", "shoes", "trainer", "trainers", "track trainer",
-        "boots", "loafer", "loafers", "sandals",
+        "runner", "runners", "detroit runner", "boots", "loafer", "loafers", "sandals",
         "\u30b9\u30cb\u30fc\u30ab\u30fc", "\u30b7\u30e5\u30fc\u30ba", "\u9774",
         "\u30b9\u30d4\u30fc\u30c9\u30c8\u30ec\u30fc\u30ca\u30fc", "\u30c8\u30ec\u30fc\u30ca\u30fc",
+        "\u30e9\u30f3\u30ca\u30fc", "\u30c7\u30c8\u30ed\u30a4\u30c8\u30e9\u30f3\u30ca\u30fc",
         "\u30cf\u30a4\u30ab\u30c3\u30c8", "\u30ed\u30fc\u30ab\u30c3\u30c8",
         "\u30c8\u30e9\u30c3\u30af\u30c8\u30ec\u30fc\u30ca\u30fc", "\u30c8\u30e9\u30c3\u30af\u30b9\u30cb\u30fc\u30ab\u30fc",
         "\u30c8\u30e9\u30c3\u30af\u30b7\u30e5\u30fc\u30ba",
@@ -128,6 +129,9 @@ MERCARI_KIND_GROUPS = [
         "\u30ed\u30f3\u30b0\u30b9\u30ea\u30fc\u30d6", "\u30ed\u30f3t", "\u30ed\u30f3\u30c6\u30a3\u30fc",
         "\u30ab\u30c3\u30c8\u30bd\u30fc", "\u534a\u8896", "\u9577\u8896", "\u30c8\u30ec\u30fc\u30ca\u30fc",
         "\u30d5\u30fc\u30c7\u30a3", "\u30d5\u30fc\u30c9", "\u30dd\u30ed\u30b7\u30e3\u30c4",
+        "\u30ad\u30e3\u30df\u30bd\u30fc\u30eb", "\u30bf\u30f3\u30af\u30c8\u30c3\u30d7",
+        "\u30d7\u30eb\u30aa\u30fc\u30d0\u30fc", "\u30cf\u30fc\u30d5\u30b8\u30c3\u30d7",
+        "\u30dc\u30fc\u30ea\u30f3\u30b0\u30b7\u30e3\u30c4", "\u958b\u895f",
         "シャツ", "tシャツ", "パーカー", "スウェット", "ニット", "カーディガン", "ブラウス", "トップス",
     ]),
     ("outerwear", [
@@ -143,6 +147,7 @@ MERCARI_KIND_GROUPS = [
         "pants", "jeans", "denim", "trousers", "shorts", "skirt", "cargo", "slacks",
         "\u30ba\u30dc\u30f3", "\u30dc\u30c8\u30e0", "\u30dc\u30c8\u30e0\u30b9",
         "\u30ab\u30fc\u30b4\u30d1\u30f3\u30c4", "\u30d5\u30ec\u30a2\u30d1\u30f3\u30c4", "\u30ef\u30a4\u30c9\u30d1\u30f3\u30c4",
+        "\u30ec\u30ae\u30f3\u30b9", "\u30e1\u30c3\u30b7\u30e5\u30ec\u30ae\u30f3\u30b9",
         "パンツ", "デニム", "ジーンズ", "ショーツ", "スカート", "スラックス",
     ]),
     ("dress", ["dress", "one piece", "one-piece", "ワンピース", "ドレス"]),
@@ -150,6 +155,11 @@ MERCARI_KIND_GROUPS = [
         "cap", "hat", "beanie", "belt", "scarf", "gloves", "sunglasses",
         "帽子", "キャップ", "ハット", "ニット帽", "ベルト", "マフラー", "手袋", "サングラス",
     ]),
+]
+
+MERCARI_FASHION_SAFE_AMBIGUOUS_WORDS = [
+    "guitar girl", "guitar", "\u30ae\u30bf\u30fc\u30ac\u30fc\u30eb", "\u30ae\u30bf\u30fc",
+    "ring hoodie", "ring", "\u30ea\u30f3\u30b0\u30d5\u30fc\u30c7\u30a3", "\u30ea\u30f3\u30b0",
 ]
 
 
@@ -223,15 +233,20 @@ def deep_fashion_kind(item):
     text = _mercari_text_blob(item)
     if is_unwanted_item_text(text):
         return ""
-    if _has_any_term(text, MERCARI_BLOCKED_WORDS):
-        return ""
     if _mercari_has_soft_bad_condition(text):
         return ""
     if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
         return ""
     kind = mercari_item_kind(item)
     if kind:
+        if (
+            _has_any_term(text, MERCARI_BLOCKED_WORDS)
+            and not _has_any_term(text, MERCARI_FASHION_SAFE_AMBIGUOUS_WORDS)
+        ):
+            return ""
         return kind
+    if _has_any_term(text, MERCARI_BLOCKED_WORDS):
+        return ""
     if DEEP_FASHION_SIZE_PATTERN.search(text):
         return "clothing"
     return ""
