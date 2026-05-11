@@ -59,7 +59,8 @@ query SeeProducts($filter: ProductFilter!, $offset: Int, $limit: Int, $sort: Str
 """
 
 FRUITS_ALLOWED_CATEGORIES = {
-    "мѓЃмќ", "м•„мљ°н„°", "н•мќ", "м‹ л°њ", "к°Ђл°©", "лЄЁмћђ", "м•Ўм„ём„њл¦¬",
+    "\uc0c1\uc758", "\uc544\uc6b0\ud130", "\ud558\uc758", "\uc2e0\ubc1c",
+    "\uac00\ubc29", "\ubaa8\uc790", "\uc561\uc138\uc11c\ub9ac",
 }
 
 FRUITS_MIN_MARKET_SAMPLES = 1
@@ -68,30 +69,34 @@ FRUITS_MARKET_PRICE_MAX = 10000000
 FRUITS_OLD_ITEM_STOP_STREAK = 1_000_000_000
 
 FRUITS_BLOCKED_WORDS = [
-    "perfume", "fragrance", "н–Ґм€", "лЈёмЉ¤н”„л €мќґ",
+    "perfume", "fragrance", "\ud5a5\uc218", "\ub8f8\uc2a4\ud504\ub808\uc774",
     "toy", "figure", "book", "camera", "phone", "watch",
-    "н”јк·њм–ґ", "мћҐл‚њк°ђ", "м±…", "м№ґл©”лќј", "н•ёл“њнЏ°", "м‹њкі„",
-    "fake", "replica", "copy", "к°Ђн’€", "л €н”Њл¦¬м№ґ",
+    "\ud53c\uaddc\uc5b4", "\uc7a5\ub09c\uac10", "\ucc45", "\uce74\uba54\ub77c", "\ud578\ub4dc\ud3f0", "\uc2dc\uacc4",
+    "fake", "replica", "copy", "\uac00\ud488", "\ub808\ud50c\ub9ac\uce74",
 ]
 
 FRUITS_ALLOWED_SHOE_TERMS = [
     "sneaker", "sneakers", "trainer", "trainers", "runner", "runners",
     "boot", "boots", "hiking", "track", "ramones", "geobasket", "dunks",
     "jordan", "air force", "air max", "yeezy", "gazelle", "samba",
-    "г‚№гѓ‹гѓјг‚«гѓј", "г‚·гѓҐгѓјг‚є", "гѓ–гѓјгѓ„", "гѓ€гѓ©гѓѓг‚Ї", "мљґлЏ™н™”", "мЉ¤л‹€м»¤м¦€", "л¶Ђмё ", "нЉёлћ™",
+    "\u30b9\u30cb\u30fc\u30ab\u30fc", "\u30b7\u30e5\u30fc\u30ba", "\u30d6\u30fc\u30c4", "\u30c8\u30e9\u30c3\u30af",
+    "\uc6b4\ub3d9\ud654", "\uc2a4\ub2c8\ucee4\uc988", "\ubd80\uce20", "\ud2b8\ub799",
 ]
 
 FRUITS_FORMAL_SHOE_TERMS = [
     "loafer", "loafers", "derby", "derbies", "oxford", "oxfords", "moccasin", "moccasins",
     "dress shoe", "dress shoes", "formal shoe", "formal shoes", "leather shoe", "leather shoes",
     "cima", "pump", "pumps", "heel", "heels", "sandal", "sandals",
-    "гѓ­гѓјгѓ•г‚Ўгѓј", "гѓЂгѓјгѓ“гѓј", "йќ©йќґ", "г‚Єгѓѓг‚Їг‚№гѓ•г‚©гѓјгѓ‰", "гѓ‘гѓігѓ—г‚№", "гѓ’гѓјгѓ«", "г‚µгѓігѓЂгѓ«",
-    "лЎњнЌј", "лЌ”л№„", "кµ¬л‘ђ", "м •мћҐн™”", "мҐмЉ¤нЏ¬л“њ", "лЄЁм№ґм‹ ", "нЋЊн”„мЉ¤", "нћђ", "мѓЊл“¤",
+    "\u30ed\u30fc\u30d5\u30a1\u30fc", "\u30c0\u30fc\u30d3\u30fc", "\u9769\u9774",
+    "\u30aa\u30c3\u30af\u30b9\u30d5\u30a9\u30fc\u30c9", "\u30d1\u30f3\u30d7\u30b9",
+    "\u30d2\u30fc\u30eb", "\u30b5\u30f3\u30c0\u30eb",
+    "\ub85c\ud37c", "\ub354\ube44", "\uad6c\ub450", "\uc815\uc7a5\ud654",
+    "\uc625\uc2a4\ud3ec\ub4dc", "\ubaa8\uce74\uc2e0", "\ud38c\ud504\uc2a4", "\ud790", "\uc0cc\ub4e4",
 ]
 
 
 def _is_unwanted_fruits_shoe(item):
-    if str(item.get("category") or "") != "м‹ л°њ":
+    if str(item.get("category") or "") != "\uc2e0\ubc1c":
         return False
     text = _text_blob(item)
     if _has_any_term(text, FRUITS_FORMAL_SHOE_TERMS):
@@ -192,25 +197,25 @@ def fruits_fashion_kind(item):
         return ""
     category = str(item.get("category") or "")
     category_map = {
-        "мѓЃмќ": "tops",
-        "м•„мљ°н„°": "outerwear",
-        "н•мќ": "bottoms",
-        "м‹ л°њ": "shoes",
-        "к°Ђл°©": "bag",
-        "лЄЁмћђ": "hat",
-        "м•Ўм„ём„њл¦¬": "accessory",
+        "\uc0c1\uc758": "tops",
+        "\uc544\uc6b0\ud130": "outerwear",
+        "\ud558\uc758": "bottoms",
+        "\uc2e0\ubc1c": "shoes",
+        "\uac00\ubc29": "bag",
+        "\ubaa8\uc790": "hat",
+        "\uc561\uc138\uc11c\ub9ac": "accessory",
     }
     if category in category_map:
         return category_map[category]
     text = _text_blob(item)
     groups = [
-        ("shoes", ["sneaker", "shoe", "boots", "loafer", "sandals"]),
-        ("bag", ["bag", "backpack", "wallet", "tote", "pouch"]),
-        ("tops", ["shirt", "tee", "hoodie", "sweatshirt", "sweater", "knit", "cardigan", "top"]),
-        ("outerwear", ["jacket", "coat", "vest", "parka", "down"]),
-        ("bottoms", ["pants", "jeans", "denim", "trousers", "shorts", "skirt", "cargo"]),
-        ("hat", ["hat", "cap", "beanie"]),
-        ("accessory", ["belt", "scarf", "gloves", "accessory"]),
+        ("shoes", ["sneaker", "shoe", "boots", "loafer", "sandals", "\uc6b4\ub3d9\ud654", "\uc2a4\ub2c8\ucee4\uc988", "\ubd80\uce20"]),
+        ("bag", ["bag", "backpack", "wallet", "tote", "pouch", "\uac00\ubc29", "\ubc31\ud329", "\ud1a0\ud2b8\ubc31"]),
+        ("tops", ["shirt", "tee", "hoodie", "sweatshirt", "sweater", "knit", "cardigan", "top", "\uc154\uce20", "\ud2f0\uc154\uce20", "\ud6c4\ub4dc", "\ub2c8\ud2b8", "\uac00\ub514\uac74"]),
+        ("outerwear", ["jacket", "coat", "vest", "parka", "down", "\uc790\ucf13", "\uc7ac\ud0b7", "\ucf54\ud2b8", "\uc870\ub07c", "\ud328\ub529"]),
+        ("bottoms", ["pants", "jeans", "denim", "trousers", "shorts", "skirt", "cargo", "\ubc14\uc9c0", "\ud32c\uce20", "\uccad\ubc14\uc9c0", "\ub370\ub2d8", "\uc1fc\uce20", "\uc2a4\ucee4\ud2b8", "\uce74\uace0"]),
+        ("hat", ["hat", "cap", "beanie", "\ubaa8\uc790", "\ucea1", "\ube44\ub2c8", "\ubcfc\ucea1"]),
+        ("accessory", ["belt", "scarf", "gloves", "accessory", "\ubca8\ud2b8", "\uba38\ud50c\ub7ec", "\uc7a5\uac11", "\uc561\uc138\uc11c\ub9ac"]),
     ]
     for kind, terms in groups:
         if any(term in text for term in terms):
