@@ -64,7 +64,7 @@ FRUITS_ALLOWED_CATEGORIES = {
 }
 
 FRUITS_MIN_MARKET_SAMPLES = 3
-FRUITS_MAX_MARKET_RATIO = 0.90
+FRUITS_MAX_MARKET_RATIO = 1.00
 FRUITS_MARKET_PRICE_MAX = 10000000
 FRUITS_OLD_ITEM_STOP_STREAK = 1_000_000_000
 
@@ -111,12 +111,9 @@ FRUITS_FORMAL_SHOE_TERMS = [
 
 
 def _is_unwanted_fruits_shoe(item):
-    if str(item.get("category") or "") != "\uc2e0\ubc1c":
-        return False
-    text = _text_blob(item)
-    if _has_any_term(text, FRUITS_FORMAL_SHOE_TERMS):
-        return True
-    return not _has_any_term(text, FRUITS_ALLOWED_SHOE_TERMS)
+    # Shoes are valid for many watched brands (Y-3, Jeremy Scott, Raf, Balenciaga, etc.).
+    # Do not block formal shoes/sandals by subtype; rely on hard blocked words and brand matching.
+    return False
 
 
 def _headers(query):
@@ -174,12 +171,9 @@ def _text_blob(item):
 
 def _has_blocked_word(item):
     text = _text_blob(item)
-    if any(word.lower() in text for word in FRUITS_BLOCKED_WORDS):
-        return True
-    # FruitsFamily often puts normal branded womenswear in broad categories.
-    # Keep hard accessory/shoe junk filters, but don't reject normal clothing
-    # just because the title says "blouse" or another broad garment word.
-    return is_unwanted_item_text(text) and not _has_any_term(text, _WOMENSWEAR_EXCEPTIONS)
+    # Keep this list for genuinely non-fashion/fake listings only.
+    # Broad terms like wallet, derby, sandals, blouse are allowed if the brand matches.
+    return any(word.lower() in text for word in FRUITS_BLOCKED_WORDS)
 
 
 def fruits_matches_keyword(item, keyword):
@@ -187,15 +181,14 @@ def fruits_matches_keyword(item, keyword):
 
 
 def fruits_matches_brand(item, brand):
-    brand_text = str(item.get("brand") or "").lower()
-    if brand_text and _has_any_term(brand_text, brand_match_terms(brand)):
+    from shared import text_matches_brand
+    brand_text = str(item.get("brand") or "")
+    if brand_text and text_matches_brand(brand_text, brand):
         return True
     text = _text_blob(item)
     # Keep collabs where the shop brand is a parent brand but the requested
     # brand is in the title/metadata; reject unrelated search-result noise.
-    if _has_any_term(text, brand_match_terms(brand)):
-        return True
-    return False
+    return text_matches_brand(text, brand)
 
 
 def is_relevant_fruits_item(item, brand):
@@ -352,7 +345,7 @@ def fetch_fruits(query, price_min=None, price_max=None, sort_modes=None):
         items = list(items_by_id.values())
         items = sort_items_newest(items)
         if items:
-            log.info("FruitsFamily '%s' -> %s С‚РѕРІР°СЂРѕРІ", query, len(items))
+            log.info("FruitsFamily '%s' -> %s товаров", query, len(items))
         return items
     except Exception as e:
         log.warning("fetch_fruits '%s': %s", query, e)
@@ -369,9 +362,9 @@ def format_fruits_message(item, title_ru, price_line):
         "<b>FruitsFamily KR</b>\n"
         f"<b>{title_safe}</b>\n"
         f"{meta}"
-        f"<b>Р¦РµРЅР°:</b> {price_line}\n"
-        f"<b>РџСѓР±Р»РёРєР°С†РёСЏ:</b> {format_msk_timestamp(item.get('created_at'))}\n\n"
-        f"<a href='{link_safe}'>РћС‚РєСЂС‹С‚СЊ РѕР±СЉСЏРІР»РµРЅРёРµ</a>"
+        f"<b>Цена:</b> {price_line}\n"
+        f"<b>Публикация:</b> {format_msk_timestamp(item.get('created_at'))}\n\n"
+        f"<a href='{link_safe}'>Открыть объявление</a>"
     )
 
 
@@ -416,7 +409,7 @@ def fruits_loop(bot_app):
     run_id = state.get("fruits_run_id", 0)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    log.info("FruitsFamily РјРѕРЅРёС‚РѕСЂРёРЅРі Р·Р°РїСѓС‰РµРЅ")
+    log.info("FruitsFamily мониторинг запущен")
 
     while is_market_run_current("fruits", run_id):
         brands = list(state["active_brands"] or ALL_BRANDS)
@@ -467,8 +460,8 @@ def fruits_loop(bot_app):
 
                 market_items_by_id = {}
                 for search_query in dict.fromkeys(search_queries):
-                    # РћС‚РґРµР»СЊРЅР°СЏ СЂРµР°Р»СЊРЅР°СЏ РІС‹Р±РѕСЂРєР° РґР»СЏ СЂС‹РЅРєР°: Р±РµР· РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРѕРіРѕ С„РёР»СЊС‚СЂР° С†РµРЅС‹,
-                    # С‡С‚РѕР±С‹ СЂС‹РЅРѕС‡РЅР°СЏ С†РµРЅР° СЃС‡РёС‚Р°Р»Р°СЃСЊ РїРѕ С„Р°РєС‚РёС‡РµСЃРєРёРј РѕР±СЉСЏРІР»РµРЅРёСЏРј FruitsFamily.
+                    # Отдельная реальная выборка для рынка: без пользовательского фильтра цены,
+                    # чтобы рыночная цена считалась по фактическим объявлениям FruitsFamily.
                     for found in fetch_fruits(
                         search_query,
                         price_min=1,
@@ -502,14 +495,14 @@ def fruits_loop(bot_app):
                     if eur:
                         market_eur = market_krw * rate
                         price_line = (
-                            f"в‚©{item['price']:,} (~{eur:.0f} РµРІСЂРѕ)\n"
-                            f"<b>Р С‹РЅРѕРє:</b> ~в‚©{market_krw:,} (~{market_eur:.0f} РµРІСЂРѕ), "
-                            f"РЅРёР¶Рµ РЅР° {discount}% В· {market_count} СЃСЂР°РІРЅ."
+                            f"₩{item['price']:,} (~{eur:.0f} евро)\n"
+                            f"<b>Рынок:</b> ~₩{market_krw:,} (~{market_eur:.0f} евро), "
+                            f"ниже на {discount}% · {market_count} сравн."
                         )
                     else:
                         price_line = (
-                            f"в‚©{item['price']:,}\n"
-                            f"<b>Р С‹РЅРѕРє:</b> ~в‚©{market_krw:,}, РЅРёР¶Рµ РЅР° {discount}% В· {market_count} СЃСЂР°РІРЅ."
+                            f"₩{item['price']:,}\n"
+                            f"<b>Рынок:</b> ~₩{market_krw:,}, ниже на {discount}% · {market_count} сравн."
                         )
                     title_ru = translate_to_ru(item["title"])
                     photo_data = download_image_bytes(item.get("image"), referer=FRUITS_HOME_URL)
@@ -519,7 +512,7 @@ def fruits_loop(bot_app):
                     if not mark_item_seen("fruits", iid):
                         continue
                     state["fruits_stats"]["found"] += 1
-                    log.info("FOUND FruitsFamily: %s вЂ” в‚©%s", item["title"], item["price"])
+                    log.info("FOUND FruitsFamily: %s — ₩%s", item["title"], item["price"])
                     loop.run_until_complete(_send_fruits_item(bot_app, photo_data, msg, run_id))
 
                 sleep_while_market_running("fruits", run_id, random.uniform(8, 15))
