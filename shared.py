@@ -894,13 +894,23 @@ def market_search_queries(brand, market):
         return [(query_brand, "") for query_brand in brand_query_variants(brand)]
     queries = []
     for keyword in keywords:
+        keyword = re.sub(r"\s+", " ", str(keyword or "").strip())
+        if not keyword:
+            continue
         if _keyword_mentions_other_brand(keyword, brand):
             continue
+        match_keyword = _keyword_without_brand(keyword, brand)
         if _keyword_contains_brand(keyword, brand):
-            queries.append((keyword, _keyword_without_brand(keyword, brand)))
+            queries.append((keyword, match_keyword))
+            normalized_match = _normalize_keyword_text(match_keyword)
+            if normalized_match and normalized_match != match_keyword.lower():
+                queries.append((f"{brand} {normalized_match}", normalized_match))
             continue
         for query_brand in brand_query_variants(brand):
             queries.append((f"{query_brand} {keyword}", keyword))
+            normalized_keyword = _normalize_keyword_text(keyword)
+            if normalized_keyword and normalized_keyword != keyword.lower():
+                queries.append((f"{query_brand} {normalized_keyword}", normalized_keyword))
     result = []
     seen = set()
     for query, match_keyword in queries:
@@ -1040,7 +1050,37 @@ KEYWORD_ALIASES = {
     "sneakers": ["sneaker", "\u30b9\u30cb\u30fc\u30ab\u30fc", "\u30b7\u30e5\u30fc\u30ba"],
     "shoe": ["shoes", "\u30b7\u30e5\u30fc\u30ba", "\u9774"],
     "shoes": ["shoe", "\u30b7\u30e5\u30fc\u30ba", "\u9774"],
+    "zip hoodie": ["zip-up hoodie", "zip up hoodie", "hoodie zip", "hoodie zip-up", "hooded zip", "후드집업", "집업 후드"],
+    "zip-hoodie": ["zip hoodie", "zip-up hoodie", "zip up hoodie", "hoodie zip", "hoodie zip-up", "hooded zip", "후드집업", "집업 후드"],
+    "zip up hoodie": ["zip hoodie", "zip-up hoodie", "hoodie zip", "hoodie zip-up", "hooded zip", "후드집업", "집업 후드"],
+    "hoodie": ["hooded", "hood", "후드", "후드티"],
+    "zip": ["zip-up", "zip up", "집업"],
+    "baggy": ["wide", "wide leg", "loose", "oversized", "배기", "와이드"],
 }
+
+
+def _normalize_keyword_text(value):
+    value = str(value or "").lower()
+    value = re.sub(r"[-_/]+", " ", value)
+    value = re.sub(r"[^0-9a-zа-яё가-힣ぁ-んァ-ン一-龥]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _keyword_tokens(value):
+    return [token for token in _normalize_keyword_text(value).split() if token]
+
+
+def _contains_keyword_phrase(text, phrase):
+    phrase = str(phrase or "").lower().strip()
+    if not phrase:
+        return False
+    if _has_any_term(text, [phrase]):
+        return True
+    tokens = _keyword_tokens(phrase)
+    if not tokens:
+        return False
+    normalized_text = _normalize_keyword_text(text)
+    return all(_has_any_term(normalized_text, [token]) for token in tokens)
 
 
 def keyword_matches_text(text, keyword):
@@ -1048,5 +1088,19 @@ def keyword_matches_text(text, keyword):
         return True
     text = str(text or "").lower()
     keyword = str(keyword or "").lower().strip()
-    terms = [keyword, *KEYWORD_ALIASES.get(keyword, [])]
-    return _has_any_term(text, terms)
+    normalized_keyword = _normalize_keyword_text(keyword)
+    terms = [keyword, normalized_keyword]
+    terms.extend(KEYWORD_ALIASES.get(keyword, []))
+    terms.extend(KEYWORD_ALIASES.get(normalized_keyword, []))
+    seen = set()
+    for term in terms:
+        term = str(term or "").strip()
+        if not term:
+            continue
+        key = term.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if _contains_keyword_phrase(text, term):
+            return True
+    return False
