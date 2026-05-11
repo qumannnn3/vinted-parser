@@ -261,7 +261,12 @@ def vinted_matches_brand(item, brand):
             item.get("brand_name"),
         )
     ).lower()
-    return bool(brand_text and _has_any_term(brand_text, brand_match_terms(brand)))
+    if brand_text and _has_any_term(brand_text, brand_match_terms(brand)):
+        return True
+    # Fallback: some items (e.g. Adidas Jeremy Scott) are cataloged under
+    # a parent brand on Vinted but carry the collab brand name in title/description.
+    # Check the full text blob so we don't skip them.
+    return _has_any_term(_vinted_text_blob(item), brand_match_terms(brand))
 
 
 def vinted_has_brand_disclaimer(item, brand):
@@ -593,6 +598,12 @@ def _vinted_loop_inner(bot_app):
                         if not iid or has_item_seen("vinted", iid, domain):
                             continue
 
+                        # Mark as seen immediately to prevent duplicate sends
+                        # when the same item appears in multiple query variants
+                        # within the same scan cycle (e.g. "stone island" + "stoneisland")
+                        if not mark_item_seen("vinted", iid, domain):
+                            continue
+
                         relevance, age_hours = vinted_relevance_status(item, brand)
                         if relevance != "ok":
                             if relevance == "deep_fashion":
@@ -696,8 +707,9 @@ def _vinted_loop_inner(bot_app):
                             market_line,
                         )
 
-                        if not mark_item_seen("vinted", iid, domain):
-                            continue
+                        if not is_market_run_current("vinted", run_id):
+                            break
+
                         state["vinted_stats"]["found"] += 1
 
                         log.info("FOUND Vinted: %s — %s", title, price)
