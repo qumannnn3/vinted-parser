@@ -112,8 +112,10 @@ def _product_url(item_id, title, external_url=None):
             return url
         if url.startswith("/"):
             return f"{FRUITS_HOME_URL}{url}"
-    short_id = _base36(item_id)
-    return f"{FRUITS_HOME_URL}/product/{short_id}" if short_id else FRUITS_HOME_URL
+    # Use the numeric ID directly — FruitsFamily URLs are /product/<id>
+    # (base36 conversion was incorrect and produced broken links)
+    item_id = str(item_id or "").strip()
+    return f"{FRUITS_HOME_URL}/product/{item_id}" if item_id else FRUITS_HOME_URL
 
 
 def _text_blob(item):
