@@ -28,6 +28,7 @@ from shared import (
     run_telegram_coroutine,
     sleep_while_market_running,
     state,
+    throttle_request,
     translate_to_ru,
     _has_any_term,
 )
@@ -71,6 +72,30 @@ FRUITS_BLOCKED_WORDS = [
     "피규어", "장난감", "책", "카메라", "핸드폰", "시계",
     "fake", "replica", "copy", "가품", "레플리카",
 ]
+
+FRUITS_ALLOWED_SHOE_TERMS = [
+    "sneaker", "sneakers", "trainer", "trainers", "runner", "runners",
+    "boot", "boots", "hiking", "track", "ramones", "geobasket", "dunks",
+    "jordan", "air force", "air max", "yeezy", "gazelle", "samba",
+    "スニーカー", "シューズ", "ブーツ", "トラック", "운동화", "스니커즈", "부츠", "트랙",
+]
+
+FRUITS_FORMAL_SHOE_TERMS = [
+    "loafer", "loafers", "derby", "derbies", "oxford", "oxfords", "moccasin", "moccasins",
+    "dress shoe", "dress shoes", "formal shoe", "formal shoes", "leather shoe", "leather shoes",
+    "cima", "pump", "pumps", "heel", "heels", "sandal", "sandals",
+    "ローファー", "ダービー", "革靴", "オックスフォード", "パンプス", "ヒール", "サンダル",
+    "로퍼", "더비", "구두", "정장화", "옥스포드", "모카신", "펌프스", "힐", "샌들",
+]
+
+
+def _is_unwanted_fruits_shoe(item):
+    if str(item.get("category") or "") != "신발":
+        return False
+    text = _text_blob(item)
+    if _has_any_term(text, FRUITS_FORMAL_SHOE_TERMS):
+        return True
+    return not _has_any_term(text, FRUITS_ALLOWED_SHOE_TERMS)
 
 
 def _headers(query):
@@ -151,11 +176,15 @@ def is_relevant_fruits_item(item, brand):
         return False
     if _has_blocked_word(item):
         return False
+    if _is_unwanted_fruits_shoe(item):
+        return False
     return fruits_matches_brand(item, brand)
 
 
 def fruits_fashion_kind(item):
     if is_unwanted_item_text(_text_blob(item)):
+        return ""
+    if _is_unwanted_fruits_shoe(item):
         return ""
     category = str(item.get("category") or "")
     category_map = {
@@ -259,6 +288,7 @@ def fetch_fruits(query, price_min=None, price_max=None, sort_modes=None):
                         "sort": sort,
                     },
                 }
+                throttle_request("fruits", 0.8)
                 response = requests.post(
                     FRUITS_GRAPHQL_URL,
                     json=payload,
