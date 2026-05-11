@@ -87,18 +87,25 @@ DEEP_FASHION_BLOCKED_WORDS = [
 UNWANTED_ITEM_TERMS = [
     "loafer", "loafers", "penny loafer", "penny loafers", "sport loafer", "sport loafers",
     "derby", "derbies", "derby shoes", "dress shoes", "formal shoes", "oxford shoes",
-    "monk strap", "monk-strap", "brogue", "brogues", "moccasin", "moccasins",
+    "monk strap", "monk-strap", "brogue", "brogues", "moccasin", "moccasins", "mocassin", "mocassins",
+    "cima",
     "pump", "pumps", "heel", "heels", "high heels", "stiletto", "stilettos",
     "sandal", "sandals", "flat shoes", "ballet flats", "ballerina", "mules",
+    "wallet", "wallets", "cardholder", "card holder", "card case", "coin purse", "billfold",
+    "money clip", "small leather goods", "fold wallet", "bifold", "trifold",
     "glasses", "sunglasses", "eyeglasses", "eyewear", "optical", "frames",
     "blouse", "blouses",
-    "туфли", "лоферы", "лофер", "дерби", "оксфорды", "каблуки", "босоножки",
-    "сандалии", "балетки", "очки", "солнцезащитные очки", "блузка", "блуза",
-    "mokasyny", "mokasyn", "lofery", "pantofle", "czolenka", "czółenka",
+    "туфли", "лоферы", "лофер", "мокасины", "мокасин", "дерби", "оксфорды", "каблуки", "босоножки",
+    "сандалии", "балетки", "кошелек", "кошелёк", "портмоне", "кардхолдер", "визитница",
+    "очки", "солнцезащитные очки", "блузка", "блуза",
+    "mokasyny", "mokasyn", "mokasiny", "mokasin", "lofery", "pantofle", "czolenka", "czółenka",
+    "portfel", "portfele", "portmonetka", "etui na karty", "wizytownik",
     "szpilki", "obcasy", "sandaly", "sandały", "okulary", "bluzka",
-    "ローファー", "ダービー", "革靴", "オックスフォード", "パンプス", "ヒール",
+    "ローファー", "モカシン", "ダービー", "革靴", "オックスフォード", "パンプス", "ヒール",
     "サンダル", "バレエシューズ", "メガネ", "眼鏡", "サングラス", "ブラウス",
-    "로퍼", "더비", "구두", "옥스포드", "펌프스", "힐", "샌들", "플랫슈즈",
+    "財布", "ウォレット", "カードケース", "カードホルダー", "コインケース", "小銭入れ", "札入れ", "二つ折り財布", "三つ折り財布",
+    "로퍼", "모카신", "더비", "구두", "옥스포드", "펌프스", "힐", "샌들", "플랫슈즈",
+    "지갑", "반지갑", "장지갑", "카드지갑", "카드 홀더", "카드홀더", "동전지갑", "머니클립",
     "안경", "선글라스", "블라우스",
 ]
 
@@ -465,6 +472,8 @@ MSK_TZ = timezone(timedelta(hours=3), "MSK")
 _eur_rate_cache = {"rate": None, "ts": 0}
 _fx_rate_cache = {}
 _telegram_loop = None
+_request_throttle_lock = threading.Lock()
+_request_throttle_next_at = {}
 
 
 def set_telegram_loop(loop):
@@ -487,6 +496,24 @@ def run_telegram_coroutine(coro, timeout=60):
     except Exception as e:
         log.warning("Telegram send failed on main event loop: %s", e)
     return False
+
+
+def throttle_request(key, min_interval):
+    key = str(key or "default")
+    try:
+        min_interval = max(0.0, float(min_interval))
+    except (TypeError, ValueError):
+        min_interval = 0.0
+    if min_interval <= 0:
+        return
+
+    now = time.time()
+    with _request_throttle_lock:
+        next_at = _request_throttle_next_at.get(key, 0.0)
+        wait = max(0.0, next_at - now)
+        _request_throttle_next_at[key] = max(now, next_at) + min_interval
+    if wait > 0:
+        time.sleep(wait)
 
 
 def register_chat_id(chat_id):
