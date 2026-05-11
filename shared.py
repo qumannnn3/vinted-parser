@@ -8,6 +8,7 @@ import contextvars
 import copy
 import json
 import threading
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from collections.abc import MutableMapping
@@ -55,9 +56,9 @@ except ValueError:
     MERCARI_MIN_MARKET_SAMPLES = 1
 
 try:
-    MERCARI_MAX_MARKET_RATIO = float(os.environ.get("MERCARI_MAX_MARKET_RATIO", "0.90"))
+    MERCARI_MAX_MARKET_RATIO = float(os.environ.get("MERCARI_MAX_MARKET_RATIO", "1.00"))
 except ValueError:
-    MERCARI_MAX_MARKET_RATIO = 0.90
+    MERCARI_MAX_MARKET_RATIO = 1.00
 
 BAD_WORDS = [
     "pieluchy", "pampers", "baby", "dziecko", "dla dzieci", "подгузники", "детское",
@@ -158,7 +159,7 @@ BRAND_ALIASES = {
         "ヨウジヤマモト", "\uc694\uc9c0 \uc57c\ub9c8\ubaa8\ud1a0", "\uc694\uc9c0\uc57c\ub9c8\ubaa8\ud1a0",
         "\uc640\uc774\uc988", "\uc640\uc77c\ub4dc\uc0ac\uc774\ub4dc", "\uc640\uc77c\ub4dc \uc0ac\uc774\ub4dc",
     ],
-    "vetements": ["vetement", "ヴェトモン", "베트멍"],
+    "vetements": ["vetement", "vtmnts", "ヴェトモン", "베트멍"],
     "palm angels": ["palmangels"],
     "maison margiela": ["margiela", "maison martin margiela", "martin margiela", "마르지엘라"],
     "givenchy": ["ジバンシィ", "ジバンシー"],
@@ -169,11 +170,11 @@ BRAND_ALIASES = {
     "alyx": ["1017 alyx 9sm", "alyx studio"],
     "tornado mart": ["tornadomart", "トルネードマート"],
     "14th addiction": ["fourteenth addiction", "14thaddiction"],
-    "project g/r": ["project gr", "project g r", "projectgr"],
+    "project g/r": ["project gr", "project g r", "projectgr", "grailz", "grailz project", "grailzproject", "グレイルズ", "그레일즈"],
     "hysteric glamour": ["hysterics", "hysteric", "ヒステリックグラマー"],
     "dolce&gabbana": ["dolce gabbana", "dolce and gabbana", "d&g", "ドルチェ&ガッバーナ"],
     "number nine": ["number (n)ine", "number n ine", "numbernine", "ナンバーナイン"],
-    "grailz project": ["grailz", "grailzproject"],
+    "grailz project": ["grailz", "grailzproject", "project g/r", "project gr", "projectgr", "project g r", "projtct", "グレイルズ", "그레일즈"],
     "y-3": ["y3", "yohji adidas", "ワイスリー", "\uc640\uc774\uc4f0\ub9ac", "\uc640\uc774\uc2a4\ub9ac"],
     "lgb": ["le grand bleu", "ルグランブルー"],
     "ed hardy": ["edhardy"],
@@ -226,9 +227,9 @@ BRAND_ALIASES["hysteric glamour"] = [
 ]
 
 try:
-    MAX_BRAND_QUERY_VARIANTS = max(1, int(os.environ.get("MAX_BRAND_QUERY_VARIANTS", "4")))
+    MAX_BRAND_QUERY_VARIANTS = max(1, int(os.environ.get("MAX_BRAND_QUERY_VARIANTS", "8")))
 except ValueError:
-    MAX_BRAND_QUERY_VARIANTS = 4
+    MAX_BRAND_QUERY_VARIANTS = 8
 
 USER_AGENTS = [
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
@@ -858,16 +859,133 @@ def _dedupe_texts(values):
     return result
 
 
+def normalize_match_text(value):
+    """Normalize text for brand/keyword matching across JP/KR/Latin listings.
+
+    One normalization layer is used for every brand in ALL_BRANDS.  It fixes
+    full-width forms, unicode dashes (Y−3), punctuation, slashes/dots and
+    excessive whitespace before any brand comparison is made.
+    """
+    value = unicodedata.normalize("NFKC", str(value or "")).lower()
+    value = value.replace("＆", "&")
+    value = value.replace("’", "'").replace("`", "'").replace("´", "'")
+    value = re.sub(r"[‐‑‒–—―−﹣－]+", "-", value)
+    value = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", value)
+    value = re.sub(r"\s*&\s*", "&", value)
+    value = re.sub(r"[\s_./\\]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def compact_match_text(value):
+    value = normalize_match_text(value)
+    return re.sub(r"[^0-9a-zа-яё가-힣ぁ-んァ-ン一-龥]+", "", value)
+
+
+def _ascii_fold(value):
+    value = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(ch for ch in value if not unicodedata.combining(ch))
+
+
+def _auto_brand_aliases(brand):
+    """Generate safe aliases for every brand from ALL_BRANDS.
+
+    Manual BRAND_ALIASES still win, but this guarantees each brand also gets
+    punctuation/space/slash/ampersand variants without adding one-off patches.
+    Examples: Project G/R -> project gr/projectgr, Dolce&Gabbana -> dolce gabbana,
+    CP Company -> cpcompany, Y-3 -> y3, If Six Was Nine -> ifsixwasnine.
+    """
+    raw = str(brand or "").strip()
+    norm = normalize_match_text(raw)
+    if not norm:
+        return []
+
+    variants = [norm]
+    folded = normalize_match_text(_ascii_fold(norm))
+    if folded != norm:
+        variants.append(folded)
+
+    # Punctuation and conjunction variants.
+    for base in list(variants):
+        if "&" in base:
+            variants.extend([base.replace("&", " and "), base.replace("&", " ")])
+        if " and " in base:
+            variants.append(base.replace(" and ", " & "))
+        variants.append(re.sub(r"[./\\]+", " ", base))
+        variants.append(re.sub(r"[-]+", " ", base))
+        variants.append(re.sub(r"[\s./\\-]+", "", base))
+
+    compact = compact_match_text(norm)
+    if compact:
+        variants.append(compact)
+
+    # Common short form for two/three word Latin brands: Stone Island -> si is
+    # intentionally NOT added because it is too broad. Only compact full-name is used.
+    return _dedupe_texts(variants)
+
+
+def _term_variants(term):
+    term = normalize_match_text(term)
+    if not term:
+        return []
+    variants = [term]
+    compact = compact_match_text(term)
+    if compact and compact != term:
+        variants.append(compact)
+    if "&" in term:
+        variants.append(term.replace("&", " and "))
+        variants.append(term.replace("&", " "))
+    if " and " in term:
+        variants.append(term.replace(" and ", " & "))
+    variants.append(re.sub(r"[-]+", " ", term))
+    variants.append(re.sub(r"[./\\]+", " ", term))
+    return _dedupe_texts(variants)
+
+
 def brand_aliases(brand):
-    return _dedupe_texts(BRAND_ALIASES.get(str(brand or "").lower().strip(), []))
+    key = normalize_match_text(brand)
+    aliases = []
+    # BRAND_ALIASES keys may contain slashes/dots/old spelling; normalize them
+    # too, otherwise entries like project g/r would never be used.
+    for alias_key, alias_values in BRAND_ALIASES.items():
+        if normalize_match_text(alias_key) == key:
+            aliases.extend(alias_values)
+    aliases.extend(_auto_brand_aliases(key))
+    # Do not return the exact canonical brand as an alias; caller adds it.
+    return _dedupe_texts(a for a in aliases if normalize_match_text(a) != key)
 
 
 def brand_query_variants(brand):
+    # Used for marketplace search. Every brand gets automatic compact/punctuation
+    # variants, capped by MAX_BRAND_QUERY_VARIANTS to avoid request explosions.
     return _dedupe_texts([brand, *brand_aliases(brand)])[:MAX_BRAND_QUERY_VARIANTS]
 
 
 def brand_match_terms(brand):
-    return _dedupe_texts([brand, *brand_aliases(brand)])
+    terms = []
+    for value in [brand, *brand_aliases(brand)]:
+        terms.extend(_term_variants(value))
+    return _dedupe_texts(terms)
+
+
+def text_matches_brand(text, brand, *, extra_terms=None, exclude_compact_terms=None):
+    normalized_text = normalize_match_text(text)
+    compact_text = compact_match_text(text)
+    excluded = {compact_match_text(x) for x in (exclude_compact_terms or []) if x}
+    terms = [*brand_match_terms(brand), *(extra_terms or [])]
+    for term in terms:
+        norm = normalize_match_text(term)
+        comp = compact_match_text(term)
+        if not norm:
+            continue
+        if comp in excluded:
+            continue
+        if _contains_term(normalized_text, norm):
+            return True
+        # Compact matching fixes Y-3/Y−3/Y3, Project G/R/ProjectGR, etc.
+        # Avoid ultra-short generic terms unless they came from an explicit alias.
+        if comp and len(comp) >= 2 and comp in compact_text:
+            return True
+    return False
 
 
 def has_brand_disclaimer(text, brand):
@@ -905,15 +1023,7 @@ def has_brand_disclaimer(text, brand):
 
 
 def _keyword_contains_brand(keyword, brand):
-    keyword_l = re.sub(r"\s+", " ", str(keyword or "").lower()).strip()
-    if not keyword_l:
-        return False
-    compact_keyword = keyword_l.replace(" ", "")
-    for brand_text in brand_match_terms(brand):
-        brand_l = re.sub(r"\s+", " ", str(brand_text or "").lower()).strip()
-        if brand_l and (brand_l in keyword_l or brand_l.replace(" ", "") in compact_keyword):
-            return True
-    return False
+    return text_matches_brand(keyword, brand)
 
 
 def _keyword_mentions_other_brand(keyword, brand):
@@ -1064,14 +1174,21 @@ def _obj_get(obj, *names, default=None):
 
 
 def _contains_term(text, term):
-    term = str(term).lower().strip()
+    text = normalize_match_text(text)
+    term = normalize_match_text(term)
     if not term:
         return False
     if re.fullmatch(r"[a-z0-9][a-z0-9 .&'/-]*[a-z0-9]", term):
         boundary = r"[a-z0-9.]" if "." in term else r"[a-z0-9]"
         pattern = rf"(?<!{boundary})" + re.escape(term) + rf"(?!{boundary})"
-        return re.search(pattern, text) is not None
-    return term in text
+        if re.search(pattern, text):
+            return True
+    elif term in text:
+        return True
+    compact_term = compact_match_text(term)
+    if compact_term and len(compact_term) >= 3:
+        return compact_term in compact_match_text(text)
+    return False
 
 
 def _has_any_term(text, terms):
