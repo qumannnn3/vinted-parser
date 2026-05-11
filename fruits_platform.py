@@ -27,6 +27,7 @@ from shared import (
     publish_age_hours,
     run_telegram_coroutine,
     sleep_while_market_running,
+    sort_items_newest,
     state,
     throttle_request,
     translate_to_ru,
@@ -58,39 +59,39 @@ query SeeProducts($filter: ProductFilter!, $offset: Int, $limit: Int, $sort: Str
 """
 
 FRUITS_ALLOWED_CATEGORIES = {
-    "상의", "아우터", "하의", "신발", "가방", "모자", "액세서리",
+    "мѓЃмќ", "м•„мљ°н„°", "н•мќ", "м‹ л°њ", "к°Ђл°©", "лЄЁмћђ", "м•Ўм„ём„њл¦¬",
 }
 
 FRUITS_MIN_MARKET_SAMPLES = 1
 FRUITS_MAX_MARKET_RATIO = 0.90
 FRUITS_MARKET_PRICE_MAX = 10000000
-FRUITS_OLD_ITEM_STOP_STREAK = 8
+FRUITS_OLD_ITEM_STOP_STREAK = 1_000_000_000
 
 FRUITS_BLOCKED_WORDS = [
-    "perfume", "fragrance", "향수", "룸스프레이",
+    "perfume", "fragrance", "н–Ґм€", "лЈёмЉ¤н”„л €мќґ",
     "toy", "figure", "book", "camera", "phone", "watch",
-    "피규어", "장난감", "책", "카메라", "핸드폰", "시계",
-    "fake", "replica", "copy", "가품", "레플리카",
+    "н”јк·њм–ґ", "мћҐл‚њк°ђ", "м±…", "м№ґл©”лќј", "н•ёл“њнЏ°", "м‹њкі„",
+    "fake", "replica", "copy", "к°Ђн’€", "л €н”Њл¦¬м№ґ",
 ]
 
 FRUITS_ALLOWED_SHOE_TERMS = [
     "sneaker", "sneakers", "trainer", "trainers", "runner", "runners",
     "boot", "boots", "hiking", "track", "ramones", "geobasket", "dunks",
     "jordan", "air force", "air max", "yeezy", "gazelle", "samba",
-    "スニーカー", "シューズ", "ブーツ", "トラック", "운동화", "스니커즈", "부츠", "트랙",
+    "г‚№гѓ‹гѓјг‚«гѓј", "г‚·гѓҐгѓјг‚є", "гѓ–гѓјгѓ„", "гѓ€гѓ©гѓѓг‚Ї", "мљґлЏ™н™”", "мЉ¤л‹€м»¤м¦€", "л¶Ђмё ", "нЉёлћ™",
 ]
 
 FRUITS_FORMAL_SHOE_TERMS = [
     "loafer", "loafers", "derby", "derbies", "oxford", "oxfords", "moccasin", "moccasins",
     "dress shoe", "dress shoes", "formal shoe", "formal shoes", "leather shoe", "leather shoes",
     "cima", "pump", "pumps", "heel", "heels", "sandal", "sandals",
-    "ローファー", "ダービー", "革靴", "オックスフォード", "パンプス", "ヒール", "サンダル",
-    "로퍼", "더비", "구두", "정장화", "옥스포드", "모카신", "펌프스", "힐", "샌들",
+    "гѓ­гѓјгѓ•г‚Ўгѓј", "гѓЂгѓјгѓ“гѓј", "йќ©йќґ", "г‚Єгѓѓг‚Їг‚№гѓ•г‚©гѓјгѓ‰", "гѓ‘гѓігѓ—г‚№", "гѓ’гѓјгѓ«", "г‚µгѓігѓЂгѓ«",
+    "лЎњнЌј", "лЌ”л№„", "кµ¬л‘ђ", "м •мћҐн™”", "мҐмЉ¤нЏ¬л“њ", "лЄЁм№ґм‹ ", "нЋЊн”„мЉ¤", "нћђ", "мѓЊл“¤",
 ]
 
 
 def _is_unwanted_fruits_shoe(item):
-    if str(item.get("category") or "") != "신발":
+    if str(item.get("category") or "") != "м‹ л°њ":
         return False
     text = _text_blob(item)
     if _has_any_term(text, FRUITS_FORMAL_SHOE_TERMS):
@@ -111,7 +112,7 @@ def _headers(query):
 def _slug(text):
     value = str(text or "").strip().lower()
     value = re.sub(r"\s+", "-", value)
-    value = re.sub(r"[^a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ_-]+", "", value)
+    value = re.sub(r"[^a-z0-9к°Ђ-нћЈг„±-г…Ћг…Џ-г…Ј_-]+", "", value)
     return value.strip("-") or "item"
 
 
@@ -191,13 +192,13 @@ def fruits_fashion_kind(item):
         return ""
     category = str(item.get("category") or "")
     category_map = {
-        "상의": "tops",
-        "아우터": "outerwear",
-        "하의": "bottoms",
-        "신발": "shoes",
-        "가방": "bag",
-        "모자": "hat",
-        "액세서리": "accessory",
+        "мѓЃмќ": "tops",
+        "м•„мљ°н„°": "outerwear",
+        "н•мќ": "bottoms",
+        "м‹ л°њ": "shoes",
+        "к°Ђл°©": "bag",
+        "лЄЁмћђ": "hat",
+        "м•Ўм„ём„њл¦¬": "accessory",
     }
     if category in category_map:
         return category_map[category]
@@ -314,8 +315,9 @@ def fetch_fruits(query, price_min=None, price_max=None, sort_modes=None):
                 if len(batch) < 40:
                     break
         items = list(items_by_id.values())
+        items = sort_items_newest(items)
         if items:
-            log.info("FruitsFamily '%s' -> %s товаров", query, len(items))
+            log.info("FruitsFamily '%s' -> %s С‚РѕРІР°СЂРѕРІ", query, len(items))
         return items
     except Exception as e:
         log.warning("fetch_fruits '%s': %s", query, e)
@@ -332,9 +334,9 @@ def format_fruits_message(item, title_ru, price_line):
         "<b>FruitsFamily KR</b>\n"
         f"<b>{title_safe}</b>\n"
         f"{meta}"
-        f"<b>Цена:</b> {price_line}\n"
-        f"<b>Публикация:</b> {format_msk_timestamp(item.get('created_at'))}\n\n"
-        f"<a href='{link_safe}'>Открыть объявление</a>"
+        f"<b>Р¦РµРЅР°:</b> {price_line}\n"
+        f"<b>РџСѓР±Р»РёРєР°С†РёСЏ:</b> {format_msk_timestamp(item.get('created_at'))}\n\n"
+        f"<a href='{link_safe}'>РћС‚РєСЂС‹С‚СЊ РѕР±СЉСЏРІР»РµРЅРёРµ</a>"
     )
 
 
@@ -379,7 +381,7 @@ def fruits_loop(bot_app):
     run_id = state.get("fruits_run_id", 0)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    log.info("FruitsFamily мониторинг запущен")
+    log.info("FruitsFamily РјРѕРЅРёС‚РѕСЂРёРЅРі Р·Р°РїСѓС‰РµРЅ")
 
     while is_market_run_current("fruits", run_id):
         brands = list(state["active_brands"] or ALL_BRANDS)
@@ -397,25 +399,12 @@ def fruits_loop(bot_app):
                     search_queries.append(brand)
                 items_by_id = {}
                 for search_query in dict.fromkeys(search_queries):
-                    old_item_streak = 0
                     for found in fetch_fruits(search_query):
                         if not is_market_run_current("fruits", run_id):
                             break
                         if found.get("id"):
                             items_by_id[found["id"]] = found
 
-                            age_hours = publish_age_hours(found.get("created_at"))
-                            if age_hours is not None and age_hours > float(state["fruits_max_age_hours"]):
-                                old_item_streak += 1
-                                if old_item_streak >= FRUITS_OLD_ITEM_STOP_STREAK:
-                                    log.info(
-                                        "STOP FruitsFamily newest page '%s': %s старых подряд",
-                                        search_query,
-                                        old_item_streak,
-                                    )
-                                    break
-                            else:
-                                old_item_streak = 0
 
                 fresh_candidates = []
 
@@ -435,9 +424,6 @@ def fruits_loop(bot_app):
                         state["fruits_max_age_hours"],
                     )
                     if age_ok is False:
-                        age_hours = publish_age_hours(item.get("created_at"))
-                        age_label = f"{age_hours:.1f}h" if age_hours is not None else "unknown"
-                        log.info("SKIP FruitsFamily age %s: %s", age_label, item.get("title", "?")[:60])
                         continue
                     fresh_candidates.append(item)
 
@@ -446,8 +432,8 @@ def fruits_loop(bot_app):
 
                 market_items_by_id = {}
                 for search_query in dict.fromkeys(search_queries):
-                    # Отдельная реальная выборка для рынка: без пользовательского фильтра цены,
-                    # чтобы рыночная цена считалась по фактическим объявлениям FruitsFamily.
+                    # РћС‚РґРµР»СЊРЅР°СЏ СЂРµР°Р»СЊРЅР°СЏ РІС‹Р±РѕСЂРєР° РґР»СЏ СЂС‹РЅРєР°: Р±РµР· РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРѕРіРѕ С„РёР»СЊС‚СЂР° С†РµРЅС‹,
+                    # С‡С‚РѕР±С‹ СЂС‹РЅРѕС‡РЅР°СЏ С†РµРЅР° СЃС‡РёС‚Р°Р»Р°СЃСЊ РїРѕ С„Р°РєС‚РёС‡РµСЃРєРёРј РѕР±СЉСЏРІР»РµРЅРёСЏРј FruitsFamily.
                     for found in fetch_fruits(
                         search_query,
                         price_min=1,
@@ -481,14 +467,14 @@ def fruits_loop(bot_app):
                     if eur:
                         market_eur = market_krw * rate
                         price_line = (
-                            f"₩{item['price']:,} (~{eur:.0f} евро)\n"
-                            f"<b>Рынок:</b> ~₩{market_krw:,} (~{market_eur:.0f} евро), "
-                            f"ниже на {discount}% · {market_count} сравн."
+                            f"в‚©{item['price']:,} (~{eur:.0f} РµРІСЂРѕ)\n"
+                            f"<b>Р С‹РЅРѕРє:</b> ~в‚©{market_krw:,} (~{market_eur:.0f} РµРІСЂРѕ), "
+                            f"РЅРёР¶Рµ РЅР° {discount}% В· {market_count} СЃСЂР°РІРЅ."
                         )
                     else:
                         price_line = (
-                            f"₩{item['price']:,}\n"
-                            f"<b>Рынок:</b> ~₩{market_krw:,}, ниже на {discount}% · {market_count} сравн."
+                            f"в‚©{item['price']:,}\n"
+                            f"<b>Р С‹РЅРѕРє:</b> ~в‚©{market_krw:,}, РЅРёР¶Рµ РЅР° {discount}% В· {market_count} СЃСЂР°РІРЅ."
                         )
                     title_ru = translate_to_ru(item["title"])
                     photo_data = download_image_bytes(item.get("image"), referer=FRUITS_HOME_URL)
@@ -498,7 +484,7 @@ def fruits_loop(bot_app):
                     if not mark_item_seen("fruits", iid):
                         continue
                     state["fruits_stats"]["found"] += 1
-                    log.info("FOUND FruitsFamily: %s — ₩%s", item["title"], item["price"])
+                    log.info("FOUND FruitsFamily: %s вЂ” в‚©%s", item["title"], item["price"])
                     loop.run_until_complete(_send_fruits_item(bot_app, photo_data, msg, run_id))
 
                 sleep_while_market_running("fruits", run_id, random.uniform(8, 15))
