@@ -731,6 +731,33 @@ def _try_parse_ts(val) -> float | None:
     return None
 
 
+def sort_items_newest(items, timestamp_getter=None):
+    def item_ts(item):
+        try:
+            value = timestamp_getter(item) if timestamp_getter else None
+        except Exception:
+            value = None
+        if value is None and isinstance(item, dict):
+            for key in (
+                "created_at",
+                "createdAt",
+                "created_at_i",
+                "created_at_ts",
+                "activation_ts",
+                "updated_at",
+                "updated_at_ts",
+                "listed_at",
+                "listedAt",
+                "bumped_at",
+            ):
+                if key in item:
+                    value = item.get(key)
+                    break
+        return _try_parse_ts(value) or 0
+
+    return sorted(list(items or []), key=item_ts, reverse=True)
+
+
 def format_msk_timestamp(ts) -> str:
     parsed = _try_parse_ts(ts)
     if not parsed:
