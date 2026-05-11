@@ -274,7 +274,14 @@ def _mercari_item_url(item_id, url):
             return url
         if url.startswith("/"):
             return f"https://jp.mercari.com{url}"
-    return f"https://jp.mercari.com/item/{item_id}" if item_id else ""
+    if not item_id:
+        return ""
+    item_id = str(item_id)
+    # Mercari item IDs in URLs require the "m" prefix (e.g. m12345678901).
+    # The API sometimes returns bare numeric IDs — add the prefix if missing.
+    if item_id.isdigit():
+        item_id = f"m{item_id}"
+    return f"https://jp.mercari.com/item/{item_id}"
 
 
 def _normalize_mercari_item(item):
