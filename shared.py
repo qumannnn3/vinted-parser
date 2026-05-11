@@ -212,6 +212,19 @@ BRAND_ALIASES = {
     "dsquared2": ["dsquared", "d squared2", "d squared"],
 }
 
+BRAND_ALIASES["hysteric glamour"] = [
+    *BRAND_ALIASES.get("hysteric glamour", []),
+    "hysteric glamor",
+    "thee hysteric xxx",
+    "\u30d2\u30b9\u30c6\u30ea\u30c3\u30af\u30b0\u30e9\u30de\u30fc",
+    "\u30d2\u30b9\u30c6\u30ea\u30c3\u30af",
+    "\u30d2\u30b9\u30ac\u30fc\u30eb",
+    "\ud788\uc2a4\ud14c\ub9ad\uae00\ub798\uba38",
+    "\ud788\uc2a4\ud14c\ub9ad \uae00\ub798\uba38",
+    "\ud788\uc2a4\ud14c\ub9ad",
+    "\ud788\uc2a4\uac78",
+]
+
 try:
     MAX_BRAND_QUERY_VARIANTS = max(1, int(os.environ.get("MAX_BRAND_QUERY_VARIANTS", "4")))
 except ValueError:
