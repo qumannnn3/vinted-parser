@@ -20,7 +20,6 @@ from shared import (
     has_item_seen,
     is_market_run_current,
     is_unwanted_item_text,
-    is_wanted_post_text,
     keyword_matches_text,
     log,
     mark_item_seen,
@@ -35,6 +34,24 @@ from shared import (
     translate_to_ru,
     _has_any_term,
 )
+
+WANTED_POST_PATTERNS = [
+    r"\b(?:wtb|iso)\b",
+    r"\b(?:looking\s+for|in\s+search\s+of|want(?:ed)?\s+to\s+buy|buying)\b",
+    r"\b(?:kupie|szukam|poszukuje|looking)\b",
+    r"\b(?:\u043a\u0443\u043f\u043b\u044e|\u0438\u0449\u0443|\u043d\u0443\u0436\u0435\u043d|\u043d\u0443\u0436\u043d\u0430)\b",
+    r"(?:^|[\s\[\(\{<])\uad6c\ub9e4(?:[\s\]\)\}>]|$)",
+    r"\uad6c\ud569\ub2c8\ub2e4|\uad6c\ud568|\uad6c\ud574|\uc0bd\ub2c8\ub2e4|\ub9e4\uc785|\ucc3e\uc2b5\ub2c8\ub2e4",
+    r"(?:^|[\s\[\(\{<])\u6c42(?:[\s\]\)\}>]|$)",
+    r"\u6c42\u3080|\u63a2\u3057\u3066\u3044\u307e\u3059|\u63a2\u3057\u3066\u307e\u3059|\u63a2\u3057\u4e2d|\u8cb7\u53d6|\u8cb7\u3044\u307e\u3059|\u8cfc\u5165\u5e0c\u671b|\u52df\u96c6",
+]
+
+
+def is_wanted_post_text(text):
+    raw = str(text or "").lower()
+    if not raw.strip():
+        return False
+    return any(re.search(pattern, raw, re.IGNORECASE) for pattern in WANTED_POST_PATTERNS)
 
 FRUITS_GRAPHQL_URL = "https://web-server.production.fruitsfamily.com/graphql"
 FRUITS_HOME_URL = "https://fruitsfamily.com"
