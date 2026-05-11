@@ -136,7 +136,11 @@ def fruits_matches_keyword(item, keyword):
 
 def fruits_matches_brand(item, brand):
     brand_text = str(item.get("brand") or "").lower()
-    return bool(brand_text and _has_any_term(brand_text, brand_match_terms(brand)))
+    if brand_text and _has_any_term(brand_text, brand_match_terms(brand)):
+        return True
+    # Fallback: collab items (e.g. Adidas Jeremy Scott) may have the parent
+    # brand in the brand field but the collab name only in the title.
+    return _has_any_term(_text_blob(item), brand_match_terms(brand))
 
 
 def is_relevant_fruits_item(item, brand):
