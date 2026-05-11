@@ -30,6 +30,7 @@ from shared import (
     publish_age_hours,
     run_telegram_coroutine,
     state,
+    throttle_request,
     translate_to_ru,
     _has_any_term,
 )
@@ -246,6 +247,7 @@ def fetch_grailed(query, limit=80, price_min=None, price_max=None, use_age_filte
         ]
     }
     try:
+        throttle_request("grailed", 0.8)
         response = requests.post(
             GRAILED_SEARCH_URL,
             headers=_headers(),
