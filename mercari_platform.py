@@ -556,3 +556,5 @@ def mercari_loop(bot_app):
     except Exception as e:
         log.warning("Mercari client close failed: %s", e)
     loop.close()
+
+                        
