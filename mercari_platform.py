@@ -31,6 +31,7 @@ from shared import (
     run_telegram_coroutine,
     sleep_while_market_running,
     state,
+    throttle_request,
     translate_to_ru,
     _has_any_term,
     _obj_get,
@@ -67,9 +68,9 @@ MERCARI_BLOCKED_WORDS = [
     "カメラ", "充電器", "ケース", "ポスター", "ステッカー", "カード", "キーホルダー",
     "copy", "replica", "fake", "копия", "реплика", "подделка", "偽物", "コピー",
     "模倣", "ノーブランド", "no brand", "brand unknown", "ファックス コピー",
-    "style", "inspired", "type", "look", "風", "タイプ", "系", "オマージュ",
-    "junk", "damaged", "broken", "stain", "dirty", "hole", "repair", "parts",
-    "ジャンク", "汚れ", "シミ", "穴", "破れ", "傷", "訳あり", "難あり",
+    "style", "inspired", "type", "look", "風", "タイプ", "オマージュ",
+    "junk", "damaged", "broken", "hole", "repair", "parts",
+    "ジャンク", "穴", "破れ", "訳あり", "難あり",
     "drum", "drums", "snare", "cymbal", "guitar", "bass guitar", "piano",
     "keyboard", "trumpet", "sax", "saxophone", "flute", "clarinet", "violin",
     "instrument", "musical instrument", "amplifier", "amp", "microphone",
@@ -82,6 +83,27 @@ MERCARI_BLOCKED_WORDS = [
     "valencia", "pearl valencia",
     "necklace", "ring", "earring", "bracelet", "pendant", "jewelry",
     "ネックレス", "リング", "ピアス", "ブレスレット", "ジュエリー",
+]
+
+MERCARI_SOFT_CONDITION_WORDS = [
+    "stain", "stains", "dirty", "scratch", "scratches",
+    "汚れ", "シミ", "傷", "キズ", "スレ",
+]
+
+MERCARI_BAD_CONDITION_PATTERNS = [
+    r"全体的に状態が悪い",
+    r"目立つ(?:傷|キズ|汚れ|シミ)",
+    r"(?:大きな|大きい|深い|強い|ひどい|酷い)(?:傷|キズ|汚れ|シミ)",
+    r"(?:傷|キズ|汚れ|シミ)(?:多数|多め|多い|あり|有り)",
+    r"破損|欠損|剥がれ|ベタつき|ベタ付き",
+    r"needs?\s+repair|for\s+parts|parts\s+only|not\s+working",
+]
+
+MERCARI_GOOD_CONDITION_PATTERNS = [
+    r"目立った(?:傷|キズ)や(?:汚れ|シミ)なし",
+    r"目立つ(?:傷|キズ|汚れ|シミ)(?:は)?(?:なし|無し|ありません)",
+    r"(?:傷|キズ)や(?:汚れ|シミ)(?:は)?(?:なし|無し|ありません)",
+    r"no\s+noticeable\s+(?:stains?|scratches?|damage)",
 ]
 
 MERCARI_KIND_GROUPS = [
@@ -180,11 +202,21 @@ def mercari_item_kind(item):
     return ""
 
 
+def _mercari_has_soft_bad_condition(text):
+    if not _has_any_term(text, MERCARI_SOFT_CONDITION_WORDS):
+        return False
+    if any(re.search(pattern, text, re.IGNORECASE) for pattern in MERCARI_GOOD_CONDITION_PATTERNS):
+        return False
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in MERCARI_BAD_CONDITION_PATTERNS)
+
+
 def deep_fashion_kind(item):
     text = _mercari_text_blob(item)
     if is_unwanted_item_text(text):
         return ""
     if _has_any_term(text, MERCARI_BLOCKED_WORDS):
+        return ""
+    if _mercari_has_soft_bad_condition(text):
         return ""
     if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
         return ""
@@ -334,6 +366,7 @@ async def fetch_mercari(query, price_min=None, price_max=None, limit=30):
             proxies = {"http://": PROXY_URL, "https://": PROXY_URL} if PROXY_URL else None
             mercari_api = Mercapi(proxies=proxies, user_agent=random.choice(USER_AGENTS))
 
+        throttle_request("mercari", 0.8)
         results = await mercari_api.search(
             query,
             sort_by=SearchRequestData.SortBy.SORT_CREATED_TIME,
