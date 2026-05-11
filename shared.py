@@ -86,14 +86,15 @@ DEEP_FASHION_BLOCKED_WORDS = [
 
 UNWANTED_ITEM_TERMS = [
     "loafer", "loafers", "penny loafer", "penny loafers", "sport loafer", "sport loafers",
-    "derby", "derbies", "derby shoes", "dress shoes", "formal shoes", "oxford shoes",
+    "derby shoe", "derby shoes", "derby boot", "derby boots", "lace-up derby", "dress derby",
+    "derbies", "dress shoes", "formal shoes", "oxford shoes",
     "monk strap", "monk-strap", "brogue", "brogues", "moccasin", "moccasins", "mocassin", "mocassins",
     "cima",
-    "pump", "pumps", "heel", "heels", "high heels", "stiletto", "stilettos",
+    "pump shoes", "pumps", "high heels", "stiletto", "stilettos",
     "sandal", "sandals", "flat shoes", "ballet flats", "ballerina", "mules",
     "wallet", "wallets", "cardholder", "card holder", "card case", "coin purse", "billfold",
     "money clip", "small leather goods", "fold wallet", "bifold", "trifold",
-    "glasses", "sunglasses", "eyeglasses", "eyewear", "optical", "frames",
+    "glasses", "sunglasses", "eyeglasses", "eyewear", "optical", "eyeglass frames", "spectacle frames",
     "blouse", "blouses",
     "туфли", "лоферы", "лофер", "мокасины", "мокасин", "дерби", "оксфорды", "каблуки", "босоножки",
     "сандалии", "балетки", "кошелек", "кошелёк", "портмоне", "кардхолдер", "визитница",
@@ -136,7 +137,7 @@ ALL_BRANDS = [
     "robin jeans", "гоша рубчинский", "ferragamo", "salem",
     "marcelo burlon", "erd", "chrome hearts", "isabel marant",
     "mihara yasuhiro", "carol cristian poell", "alice hollywood",
-    "moncler", "valentino", "hysterics", "helmut lang",
+    "moncler", "valentino", "helmut lang",
     "maison martin margiela", "dsquared2",
 ]
 
@@ -206,7 +207,6 @@ BRAND_ALIASES = {
     "chrome hearts": ["クロムハーツ", "크롬하츠"],
     "mihara yasuhiro": ["maison mihara yasuhiro", "mmy"],
     "carol cristian poell": ["carol christian poell", "ccp"],
-    "hysterics": ["hysteric glamour", "ヒステリックグラマー"],
     "maison martin margiela": ["maison margiela", "martin margiela", "margiela", "마르지엘라"],
     "moncler": ["モンクレール", "몽클레어"],
     "dsquared2": ["dsquared", "d squared2", "d squared"],
