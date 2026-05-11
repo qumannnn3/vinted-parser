@@ -79,8 +79,10 @@ FRUITS_ALLOWED_SHOE_TERMS = [
     "sneaker", "sneakers", "trainer", "trainers", "runner", "runners",
     "boot", "boots", "hiking", "track", "ramones", "geobasket", "dunks",
     "jordan", "air force", "air max", "yeezy", "gazelle", "samba",
+    "10xl", "3xl", "runner", "tyrex", "tyrex37", "zero", "stansmith", "stan smith",
     "\u30b9\u30cb\u30fc\u30ab\u30fc", "\u30b7\u30e5\u30fc\u30ba", "\u30d6\u30fc\u30c4", "\u30c8\u30e9\u30c3\u30af",
     "\uc6b4\ub3d9\ud654", "\uc2a4\ub2c8\ucee4\uc988", "\ubd80\uce20", "\ud2b8\ub799",
+    "\ub7ec\ub108", "\ud0c0\uc774\ub809\uc2a4", "\uc81c\ub85c", "\uc2a4\ud0e0\uc2a4\ubbf8\uc2a4",
 ]
 
 FRUITS_FORMAL_SHOE_TERMS = [
@@ -159,7 +161,20 @@ def _text_blob(item):
 
 def _has_blocked_word(item):
     text = _text_blob(item)
-    return is_unwanted_item_text(text) or any(word.lower() in text for word in FRUITS_BLOCKED_WORDS)
+    if any(word.lower() in text for word in FRUITS_BLOCKED_WORDS):
+        return True
+    # FruitsFamily often puts normal branded womenswear in broad categories.
+    # Keep hard accessory/shoe junk filters, but don't reject normal clothing
+    # just because the title says "blouse" or another broad garment word.
+    return is_unwanted_item_text(text) and not _has_any_term(
+        text,
+        [
+            "blouse", "blouses", "skirt", "dress", "one piece", "one-piece",
+            "tank top", "camisole", "leggings",
+            "\uc2a4\ucee4\ud2b8", "\uc6d0\ud53c\uc2a4", "\uce90\ubbf8\uc194", "\ub808\uae45\uc2a4",
+            "\ube14\ub77c\uc6b0\uc2a4",
+        ],
+    )
 
 
 def fruits_matches_keyword(item, keyword):
@@ -211,9 +226,10 @@ def fruits_fashion_kind(item):
     groups = [
         ("shoes", ["sneaker", "shoe", "boots", "loafer", "sandals", "\uc6b4\ub3d9\ud654", "\uc2a4\ub2c8\ucee4\uc988", "\ubd80\uce20"]),
         ("bag", ["bag", "backpack", "wallet", "tote", "pouch", "\uac00\ubc29", "\ubc31\ud329", "\ud1a0\ud2b8\ubc31"]),
-        ("tops", ["shirt", "tee", "hoodie", "sweatshirt", "sweater", "knit", "cardigan", "top", "\uc154\uce20", "\ud2f0\uc154\uce20", "\ud6c4\ub4dc", "\ub2c8\ud2b8", "\uac00\ub514\uac74"]),
+        ("tops", ["shirt", "tee", "hoodie", "sweatshirt", "sweater", "knit", "cardigan", "top", "blouse", "tank top", "camisole", "\uc154\uce20", "\ud2f0\uc154\uce20", "\ud6c4\ub4dc", "\ub2c8\ud2b8", "\uac00\ub514\uac74", "\ube14\ub77c\uc6b0\uc2a4", "\uce90\ubbf8\uc194"]),
         ("outerwear", ["jacket", "coat", "vest", "parka", "down", "\uc790\ucf13", "\uc7ac\ud0b7", "\ucf54\ud2b8", "\uc870\ub07c", "\ud328\ub529"]),
-        ("bottoms", ["pants", "jeans", "denim", "trousers", "shorts", "skirt", "cargo", "\ubc14\uc9c0", "\ud32c\uce20", "\uccad\ubc14\uc9c0", "\ub370\ub2d8", "\uc1fc\uce20", "\uc2a4\ucee4\ud2b8", "\uce74\uace0"]),
+        ("bottoms", ["pants", "jeans", "denim", "trousers", "shorts", "skirt", "leggings", "cargo", "\ubc14\uc9c0", "\ud32c\uce20", "\uccad\ubc14\uc9c0", "\ub370\ub2d8", "\uc1fc\uce20", "\uc2a4\ucee4\ud2b8", "\ub808\uae45\uc2a4", "\uce74\uace0"]),
+        ("dress", ["dress", "one piece", "one-piece", "\uc6d0\ud53c\uc2a4", "\ud29c\ub2c9"]),
         ("hat", ["hat", "cap", "beanie", "\ubaa8\uc790", "\ucea1", "\ube44\ub2c8", "\ubcfc\ucea1"]),
         ("accessory", ["belt", "scarf", "gloves", "accessory", "\ubca8\ud2b8", "\uba38\ud50c\ub7ec", "\uc7a5\uac11", "\uc561\uc138\uc11c\ub9ac"]),
     ]
