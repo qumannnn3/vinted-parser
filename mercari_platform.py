@@ -22,6 +22,7 @@ from shared import (
     has_item_seen,
     is_market_run_current,
     is_unwanted_item_text,
+    is_wanted_post_text,
     keyword_matches_text,
     log,
     mark_item_seen,
@@ -39,6 +40,8 @@ from shared import (
 )
 
 mercari_api = None
+mercari_details_cache = {}
+MERCARI_DETAIL_CACHE_MAX = 1000
 MERCARI_OLD_ITEM_STOP_STREAK = 1_000_000_000
 MERCARI_EMPTY_BRAND_VALUES = {
     "",
@@ -48,10 +51,25 @@ MERCARI_EMPTY_BRAND_VALUES = {
     "nobrand",
     "brand unknown",
     "unknown",
+    "\u30ce\u30fc\u30d6\u30e9\u30f3\u30c9",
+    "\u30d6\u30e9\u30f3\u30c9\u306a\u3057",
+    "\u4e0d\u660e",
+    "\u6307\u5b9a\u306a\u3057",
+    "\u306a\u3057",
     "ノーブランド",
     "ブランドなし",
     "不明",
 }
+
+
+def _normalized_empty_brand_value(value):
+    return " ".join(str(value or "").lower().replace("_", " ").split())
+
+
+def _is_empty_mercari_brand_value(value):
+    return _normalized_empty_brand_value(value) in MERCARI_EMPTY_BRAND_VALUES
+
+
 MERCARI_AMBIGUOUS_TEXT_BRAND_TERMS = {
     "billionaire boys club": {"icecream"},
     "cav empt": {"ce"},
@@ -172,6 +190,8 @@ def _mercari_text_blob(item):
     parts = []
     for key in ("name", "title", "description", "category", "category_name", "brand", "brand_name", "status"):
         val = item.get(key) if isinstance(item, dict) else _obj_get(item, key, default="")
+        if key in ("brand", "brand_name") and _is_empty_mercari_brand_value(val):
+            continue
         if isinstance(val, dict):
             parts.extend(str(x) for x in val.values() if x)
         elif isinstance(val, list):
@@ -211,9 +231,10 @@ def _mercari_brand_text(item):
 def mercari_matches_brand(item, brand):
     brand_text = _mercari_brand_text(item)
     normalized_brand = " ".join(brand_text.replace("_", " ").split())
-    if normalized_brand and normalized_brand not in MERCARI_EMPTY_BRAND_VALUES:
+    if normalized_brand and not _is_empty_mercari_brand_value(brand_text):
         from shared import text_matches_brand
-        return text_matches_brand(brand_text, brand)
+        if text_matches_brand(brand_text, brand):
+            return True
 
     text = _mercari_text_blob(item)
     from shared import text_matches_brand
@@ -238,6 +259,8 @@ def _mercari_has_soft_bad_condition(text):
 
 def deep_fashion_kind(item):
     text = _mercari_text_blob(item)
+    if is_wanted_post_text(text):
+        return ""
     # Do not reject whole branded listings just because the item is a wallet, derby, sandal, etc.
     # Those are real resale items for many brands. Keep only hard non-fashion/bad-condition filters below.
     if _mercari_has_soft_bad_condition(text):
@@ -306,7 +329,7 @@ def _mercari_image_url(item):
     return ""
 
 
-def mercari_market_price_jpy(items, target_item, brand):
+def mercari_market_price_jpy(items, target_item, brand, keyword=None):
     from market_price import calculate_market_price
 
     return calculate_market_price(
@@ -317,6 +340,8 @@ def mercari_market_price_jpy(items, target_item, brand):
         item_filter=lambda item: (
             mercari_matches_brand(item, brand)
             and not mercari_has_brand_disclaimer(item, brand)
+            and (not keyword or mercari_matches_keyword(item, keyword))
+            and is_relevant_mercari_item(item)
         ),
         kind_getter=deep_fashion_kind,
         min_samples=MERCARI_MIN_MARKET_SAMPLES,
@@ -347,6 +372,26 @@ def _mercari_item_url(item_id, url):
     return f"https://jp.mercari.com/item/{item_id}"
 
 
+def _mercari_category_text(category):
+    if not category:
+        return ""
+    parts = []
+    for name in ("name", "parent_category_name", "root_category_name"):
+        value = _obj_get(category, name, default="")
+        if value:
+            parts.append(str(value))
+    return " ".join(dict.fromkeys(parts))
+
+
+def _mercari_seller_data(item):
+    seller = _obj_get(item, "seller", default=None)
+    if not seller:
+        return {}
+    name = _obj_get(seller, "name", "login", "username", default="")
+    seller_id = _obj_get(seller, "id_", "id", "seller_id", "sellerId", default="")
+    return {k: v for k, v in {"name": name, "id": seller_id}.items() if v}
+
+
 def _normalize_mercari_item(item):
     url = _obj_get(item, "productURL", "product_url", "url", "item_url", "webURL", "web_url", default="")
     item_id = _obj_get(
@@ -355,10 +400,22 @@ def _normalize_mercari_item(item):
         "productCode", "product_code", "merItemId", default="",
     ) or _mercari_item_id_from_url(url)
     name = _obj_get(item, "name", "productName", "title", default="?")
-    price = _obj_get(item, "price", default=0)
+    is_no_price = bool(_obj_get(item, "is_no_price", "isNoPrice", default=False))
+    real_price = _obj_get(item, "real_price", "realPrice", default=None)
+    price = real_price if real_price is not None else _obj_get(item, "price", default=0)
+    if is_no_price and real_price is None:
+        price = 0
     status = _obj_get(item, "status", "item_status", "itemStatus", default="")
     brand = _obj_get(item, "brand", "brand_name", "brandName", default="")
-    category = _obj_get(item, "category", "category_name", "categoryName", "category_id", "categoryId", default="")
+    item_category = _obj_get(item, "item_category", "itemCategory", default=None)
+    category = (
+        _mercari_category_text(item_category)
+        or _obj_get(item, "category", "category_name", "categoryName", "category_id", "categoryId", default="")
+    )
+    category_id = (
+        _obj_get(item, "category_id", "categoryId", default="")
+        or _obj_get(item_category, "id_", "id", default="")
+    )
     description = _obj_get(item, "description", "item_description", default="")
     created_at = _obj_get(
         item,
@@ -366,7 +423,7 @@ def _normalize_mercari_item(item):
         "created_timestamp", "createdTimestamp", "listed_at", "listedAt",
         default=None,
     )
-    thumbnails = _obj_get(item, "thumbnails", "item_images", "images", default=[]) or []
+    thumbnails = _obj_get(item, "thumbnails", "item_images", "images", "photos", "photo_paths", default=[]) or []
     thumb = _mercari_image_url({
         "thumbnails": thumbnails,
         "imageURL": _obj_get(item, "imageURL", "image_url", "thumbnail", default=""),
@@ -379,12 +436,62 @@ def _normalize_mercari_item(item):
         "status": status,
         "brand": brand,
         "category": category,
-        "category_id": _obj_get(item, "category_id", "categoryId", default=""),
+        "category_id": category_id,
         "description": description,
         "created_at": created_at,
         "url": url,
         "thumbnails": [{"url": thumb}] if thumb else [],
+        "seller": _mercari_seller_data(item),
+        "is_no_price": is_no_price,
+        "_raw": item.get("_raw") if isinstance(item, dict) else item,
     }
+
+
+def _cache_mercari_details(item_id, details):
+    if not item_id:
+        return
+    mercari_details_cache[str(item_id)] = details
+    if len(mercari_details_cache) > MERCARI_DETAIL_CACHE_MAX:
+        for key in list(mercari_details_cache)[: len(mercari_details_cache) - MERCARI_DETAIL_CACHE_MAX]:
+            mercari_details_cache.pop(key, None)
+
+
+async def enrich_mercari_item(item):
+    item_id = str(item.get("id") or "")
+    if not item_id or item.get("_details_loaded"):
+        return item
+
+    cached = mercari_details_cache.get(item_id)
+    if cached:
+        item.update(cached)
+        item["_details_loaded"] = True
+        return item
+
+    raw = item.get("_raw")
+    full_item = None
+    try:
+        if raw is not None and hasattr(raw, "full_item"):
+            full_item = await raw.full_item()
+        elif mercari_api is not None and hasattr(mercari_api, "item"):
+            full_item = await mercari_api.item(item_id)
+    except Exception as e:
+        log.info("Mercari details skipped id=%s: %s", item_id, e)
+
+    if not full_item:
+        item["_details_loaded"] = True
+        return item
+
+    details = _normalize_mercari_item(full_item)
+    details.pop("_raw", None)
+    clean = {}
+    for key, value in details.items():
+        if value in (None, "", [], {}):
+            continue
+        clean[key] = value
+    item.update(clean)
+    item["_details_loaded"] = True
+    _cache_mercari_details(item_id, clean)
+    return item
 
 
 async def fetch_mercari(query, price_min=None, price_max=None, limit=30):
@@ -519,6 +626,10 @@ def mercari_loop(bot_app):
                     if has_item_seen("mercari", iid):
                         continue
 
+                    if item.get("is_no_price"):
+                        log.info("SKIP Mercari no-price/wanted placeholder: %s", name[:60])
+                        continue
+
                     try:
                         price = int(item.get("price", 0))
                     except (ValueError, TypeError):
@@ -527,6 +638,24 @@ def mercari_loop(bot_app):
                     if not (state["mercari_min"] <= price <= state["mercari_max"]):
                         log.info("SKIP Mercari price %s: %s", price, name[:60])
                         continue
+
+                    item = loop.run_until_complete(enrich_mercari_item(item))
+                    name = item.get("name", name)
+                    if item.get("is_no_price"):
+                        log.info("SKIP Mercari no-price/wanted placeholder: %s", name[:60])
+                        continue
+                    try:
+                        price = int(item.get("price", price))
+                    except (ValueError, TypeError):
+                        log.info("SKIP Mercari bad detail price: %s price=%r", name[:60], item.get("price"))
+                        continue
+                    if not (state["mercari_min"] <= price <= state["mercari_max"]):
+                        log.info("SKIP Mercari price %s: %s", price, name[:60])
+                        continue
+                    if is_wanted_post_text(_mercari_text_blob(item)):
+                        log.info("SKIP Mercari wanted/buying post: %s", name[:60])
+                        continue
+
                     if not mercari_matches_brand(item, brand):
                         log.info("SKIP Mercari brand mismatch '%s': %s", brand, name[:60])
                         continue
@@ -565,7 +694,7 @@ def mercari_loop(bot_app):
                         market_items = loop.run_until_complete(
                             fetch_mercari(query, price_min=1, price_max=10_000_000, limit=80)
                         ) or items
-                    market = mercari_market_price_jpy(market_items, item, brand)
+                    market = mercari_market_price_jpy(market_items, item, brand, keyword)
                     if not market:
                         log.info("SKIP Mercari no market sample: %s", name[:60])
                         continue
