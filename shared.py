@@ -1,4 +1,4 @@
-import logging
+ыimport logging
 import os
 import re
 import time
@@ -1056,6 +1056,35 @@ KEYWORD_ALIASES = {
     "hoodie": ["hooded", "hood", "후드", "후드티"],
     "zip": ["zip-up", "zip up", "집업"],
     "baggy": ["wide", "wide leg", "loose", "oversized", "배기", "와이드"],
+    "худи": ["hoodie", "hooded", "hood", "sweatshirt", "parka", "パーカー", "フーディ", "후드", "후드티"],
+    "зип худи": ["zip hoodie", "zip-up hoodie", "zip up hoodie", "hoodie zip", "hoodie zip-up", "hooded zip", "후드집업", "집업 후드"],
+    "зипка": ["zip hoodie", "zip-up hoodie", "zip up hoodie", "hoodie zip", "hoodie zip-up", "zip jacket", "후드집업", "집업"],
+    "куртка": ["jacket", "outerwear", "blouson", "bomber", "windbreaker", "coat", "ジャケット", "ブルゾン", "アウター", "자켓", "재킷", "아우터"],
+    "бомбер": ["bomber", "bomber jacket", "ボンバー", "항공점퍼", "봄버"],
+    "пуховик": ["down jacket", "puffer", "puffer jacket", "ダウン", "패딩", "다운"],
+    "джинсы": ["jeans", "denim", "pants", "ジーンズ", "デニム", "청바지", "데님"],
+    "деним": ["denim", "jeans", "デニム", "데님"],
+    "штаны": ["pants", "trousers", "bottoms", "slacks", "パンツ", "ズボン", "바지", "팬츠"],
+    "брюки": ["pants", "trousers", "slacks", "パンツ", "スラックス", "바지", "슬랙스"],
+    "карго": ["cargo", "cargo pants", "カーゴ", "카고"],
+    "бэгги": ["baggy", "wide", "wide leg", "loose", "oversized", "배기", "와이드"],
+    "широкие": ["wide", "wide leg", "baggy", "loose", "ワイド", "와이드"],
+    "футболка": ["t-shirt", "t shirt", "tee", "shirt", "カットソー", "tシャツ", "티셔츠", "반팔"],
+    "лонгслив": ["long sleeve", "longsleeve", "ls tee", "ロンt", "ロングスリーブ", "긴팔"],
+    "рубашка": ["shirt", "button up", "button-up", "シャツ", "셔츠"],
+    "свитер": ["sweater", "knit", "jumper", "ニット", "セーター", "니트", "스웨터"],
+    "кардиган": ["cardigan", "カーディガン", "가디건"],
+    "жилет": ["vest", "ベスト", "조끼", "베스트"],
+    "кроссовки": ["sneaker", "sneakers", "trainer", "trainers", "shoes", "スニーカー", "シューズ", "운동화", "스니커즈"],
+    "кеды": ["sneaker", "sneakers", "canvas shoes", "スニーカー", "운동화", "스니커즈"],
+    "ботинки": ["boots", "boot", "ブーツ", "부츠"],
+    "сумка": ["bag", "bags", "shoulder bag", "tote", "バッグ", "ショルダーバッグ", "가방", "백"],
+    "рюкзак": ["backpack", "rucksack", "リュック", "バックパック", "백팩"],
+    "шапка": ["beanie", "hat", "cap", "ニット帽", "帽子", "비니", "모자"],
+    "кепка": ["cap", "hat", "キャップ", "모자", "캡"],
+    "ремень": ["belt", "ベルト", "벨트"],
+    "шарф": ["scarf", "muffler", "マフラー", "スカーフ", "머플러", "스카프"],
+    "очки": ["glasses", "sunglasses", "eyewear", "メガネ", "眼鏡", "サングラス", "안경", "선글라스"],
 }
 
 
