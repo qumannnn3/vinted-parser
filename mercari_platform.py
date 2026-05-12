@@ -16,10 +16,12 @@ from shared import (
     age_in_range,
     brand_match_terms,
     download_image_bytes,
+    fashion_kind_from_text,
     format_msk_timestamp,
     get_jpy_to_eur,
     has_brand_disclaimer,
     has_item_seen,
+    is_non_fashion_noise_text,
     is_market_run_current,
     is_unwanted_item_text,
     keyword_matches_text,
@@ -200,6 +202,14 @@ MERCARI_KIND_GROUPS = [
 MERCARI_FASHION_SAFE_AMBIGUOUS_WORDS = [
     "guitar girl", "guitar", "\u30ae\u30bf\u30fc\u30ac\u30fc\u30eb", "\u30ae\u30bf\u30fc",
     "ring hoodie", "ring", "\u30ea\u30f3\u30b0\u30d5\u30fc\u30c7\u30a3", "\u30ea\u30f3\u30b0",
+    "watch cap", "camera bag", "replica sneaker", "replica sneakers",
+    "replica shoe", "replica shoes", "maison margiela replica", "margiela replica",
+]
+MERCARI_STRICT_BLOCKED_WORDS = [
+    "copy", "replica", "fake", "counterfeit", "unauthentic",
+    "style", "inspired", "type", "look", "no brand", "brand unknown",
+    "junk", "damaged", "broken", "hole", "repair", "parts",
+    "parts only", "not working",
 ]
 
 
@@ -274,22 +284,24 @@ def _mercari_has_soft_bad_condition(text):
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in MERCARI_BAD_CONDITION_PATTERNS)
 
 
+def mercari_has_strict_blocked_word(text):
+    return (
+        _has_any_term(text, MERCARI_STRICT_BLOCKED_WORDS)
+        and not _has_any_term(text, MERCARI_FASHION_SAFE_AMBIGUOUS_WORDS)
+    )
+
+
 def deep_fashion_kind(item):
     text = _mercari_text_blob(item)
     if is_wanted_post_text(text):
         return ""
-    # Do not reject whole branded listings just because the item is a wallet, derby, sandal, etc.
-    # Those are real resale items for many brands. Keep only hard non-fashion/bad-condition filters below.
     if _mercari_has_soft_bad_condition(text):
         return ""
-    if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
+    if is_non_fashion_noise_text(text):
         return ""
-    kind = mercari_item_kind(item)
+    kind = mercari_item_kind(item) or fashion_kind_from_text(text)
     if kind:
-        if (
-            _has_any_term(text, MERCARI_BLOCKED_WORDS)
-            and not _has_any_term(text, MERCARI_FASHION_SAFE_AMBIGUOUS_WORDS)
-        ):
+        if mercari_has_strict_blocked_word(text):
             return ""
         return kind
     if _has_any_term(text, MERCARI_BLOCKED_WORDS):
