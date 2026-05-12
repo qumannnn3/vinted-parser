@@ -25,6 +25,7 @@ from shared import (
     is_non_fashion_noise_text,
     is_unwanted_item_text,
     keyword_matches_text,
+    listing_fingerprint,
     log,
     mark_item_seen,
     market_search_queries,
@@ -209,6 +210,21 @@ def _normalize_item(item):
     }
 
 
+def grailed_item_fingerprints(item):
+    raw = item.get("_raw", item) if isinstance(item, dict) else item
+    return [
+        listing_fingerprint(
+            "grailed",
+            item.get("title") if isinstance(item, dict) else raw.get("title"),
+            item.get("brand") if isinstance(item, dict) else raw.get("designer_names"),
+            item.get("size") if isinstance(item, dict) else raw.get("size"),
+            item.get("price") if isinstance(item, dict) else raw.get("price_i") or raw.get("price"),
+            raw.get("user", {}).get("id") if isinstance(raw.get("user"), dict) else "",
+            item.get("image") if isinstance(item, dict) else _item_image(raw),
+        )
+    ]
+
+
 def _params(query, price_min, price_max, limit, use_age_filter=True):
     query = quote_plus(str(query or ""))
     numeric_filters = [
@@ -386,7 +402,8 @@ def grailed_loop(bot_app):
                     if not _is_current_run():
                         break
                     iid = item.get("id")
-                    if not iid or has_item_seen("grailed", iid):
+                    seen_fingerprints = grailed_item_fingerprints(item)
+                    if not iid or has_item_seen("grailed", iid, fingerprints=seen_fingerprints):
                         continue
                     if not is_relevant_grailed_item(item["_raw"], brand):
                         if grailed_has_brand_disclaimer(item["_raw"], brand):
@@ -436,7 +453,7 @@ def grailed_loop(bot_app):
                     if not _is_current_run():
                         break
                     msg = format_grailed_message(item, title_ru, market_line)
-                    if not mark_item_seen("grailed", iid):
+                    if not mark_item_seen("grailed", iid, fingerprints=seen_fingerprints):
                         continue
                     state["grailed_stats"]["found"] += 1
                     log.info("FOUND Grailed: %s - $%s", item.get("title", "?"), item.get("price"))
