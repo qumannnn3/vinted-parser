@@ -6,6 +6,7 @@ import asyncio
 import concurrent.futures
 import contextvars
 import copy
+import hashlib
 import json
 import threading
 import unicodedata
@@ -46,7 +47,7 @@ VINTED_REGIONS = {
     "si": "www.vinted.si",
     "sk": "www.vinted.sk",
 }
-DEFAULT_VINTED_REGION_CODES = set()
+DEFAULT_VINTED_REGION_CODES = set(VINTED_REGIONS)
 CATALOG_IDS = [1, 3, 5, 9, 7, 12]
 MAX_AGE_HOURS = 24
 
@@ -246,7 +247,7 @@ ALL_BRANDS = [
     "rick owens", "evisu", "saint laurent", "neighborhood", "prada",
     "dior", "jaded london", "diesel", "alpha industries", "glory boyz",
     "ralph lauren", "louis vuitton", "phillipp plein", "versace",
-    "rock revival", "armani", "mastermind", "alexander mqueen",
+    "rock revival", "mastermind", "alexander mqueen",
     "cav empt", "buffalo bobs", "billionaire boys club", "acronym",
     "swear", "vivienne westwood", "balmain", "issey miyake",
     "if six was nine", "20471120", "cp company", "laoboutin",
@@ -490,10 +491,14 @@ def _apply_saved_state(target, saved):
             value = converted
         elif key in ("active_brands", "active_vinted_regions"):
             value = set(value or [])
+            if key == "active_brands":
+                value = {brand for brand in value if brand in ALL_BRANDS}
+                if not value:
+                    value = set(ALL_BRANDS)
         elif key in ("vinted_seen", "mercari_seen", "fruits_seen", "grailed_seen"):
             value = set(str(item) for item in (value or []) if item is not None)
         if key == "active_vinted_regions":
-            value = {code for code in value if code in VINTED_REGIONS}
+            value = set(DEFAULT_VINTED_REGION_CODES)
         target[key] = value
 
 
@@ -690,13 +695,46 @@ def _seen_key(item_id, namespace=None):
     return f"{namespace}:{item_id}" if namespace else item_id
 
 
-def mark_item_seen(market, item_id, namespace=None, max_items=5000):
-    key = _seen_key(item_id, namespace)
-    if not key:
+def _seen_keys(item_id, namespace=None, fingerprints=None):
+    keys = []
+    legacy = str(item_id or "").strip()
+    namespaced = _seen_key(legacy, namespace)
+    if namespaced:
+        keys.append(namespaced)
+    if legacy:
+        keys.append(legacy)
+    for fingerprint in fingerprints or []:
+        fingerprint = str(fingerprint or "").strip()
+        if fingerprint:
+            keys.append(fingerprint)
+    return _dedupe_texts(keys)
+
+
+def _fingerprint_part(value):
+    value = normalize_match_text(value)
+    value = re.sub(r"https?://\S+", " ", value)
+    value = re.sub(r"\b\d+(?:[.,]\d+)?\s*(?:eur|euro|usd|jpy|krw|pln|gbp|ВҐ|в‚©|в‚¬|\$)\b", " ", value)
+    value = re.sub(r"[^0-9a-zР°-СЏС‘к°Ђ-нћЈгЃЃ-г‚“г‚Ў-гѓідёЂ-йѕҐ]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def listing_fingerprint(*parts, prefix="fp"):
+    normalized = [_fingerprint_part(part) for part in parts if _fingerprint_part(part)]
+    if not normalized:
+        return ""
+    material = "|".join(normalized)
+    if len(material) < 6:
+        return ""
+    digest = hashlib.sha1(material.encode("utf-8", errors="ignore")).hexdigest()[:24]
+    return f"{prefix}:{digest}"
+
+
+def mark_item_seen(market, item_id, namespace=None, max_items=10000, fingerprints=None):
+    keys = _seen_keys(item_id, namespace, fingerprints)
+    if not keys:
         return False
 
     seen_key = f"{market}_seen"
-    legacy = str(item_id or "").strip()
 
     with _profiles_lock:
         profile = _active_state()
@@ -705,10 +743,10 @@ def mark_item_seen(market, item_id, namespace=None, max_items=5000):
             seen = set(str(item) for item in (seen or []) if item is not None)
             profile[seen_key] = seen
 
-        if key in seen or legacy in seen or item_id in seen:
+        if any(key in seen for key in keys):
             return False
 
-        seen.add(key)
+        seen.update(keys)
         if len(seen) > max_items:
             keep = list(seen)[-max_items:]
             profile[seen_key] = set(keep)
@@ -717,13 +755,12 @@ def mark_item_seen(market, item_id, namespace=None, max_items=5000):
     return True
 
 
-def has_item_seen(market, item_id, namespace=None):
-    key = _seen_key(item_id, namespace)
-    if not key:
+def has_item_seen(market, item_id, namespace=None, fingerprints=None):
+    keys = _seen_keys(item_id, namespace, fingerprints)
+    if not keys:
         return False
     seen = state.get(f"{market}_seen") or set()
-    legacy = str(item_id or "").strip()
-    return key in seen or legacy in seen or item_id in seen
+    return any(key in seen for key in keys)
 
 
 def download_image_bytes(url, referer=None, timeout=15):
