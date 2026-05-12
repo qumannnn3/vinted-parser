@@ -25,6 +25,7 @@ from shared import (
     is_market_run_current,
     is_unwanted_item_text,
     keyword_matches_text,
+    listing_fingerprint,
     log,
     mark_item_seen,
     market_search_queries,
@@ -401,6 +402,22 @@ def _mercari_item_url(item_id, url):
     return f"https://jp.mercari.com/item/{item_id}"
 
 
+def mercari_item_fingerprints(item):
+    seller = item.get("seller") if isinstance(item, dict) else {}
+    seller = seller or {}
+    return [
+        listing_fingerprint(
+            "mercari",
+            item.get("name") or item.get("title"),
+            item.get("brand"),
+            item.get("category"),
+            item.get("price"),
+            seller.get("id") or seller.get("name"),
+            _mercari_image_url(item),
+        )
+    ]
+
+
 def _mercari_category_text(category):
     if not category:
         return ""
@@ -649,10 +666,11 @@ def mercari_loop(bot_app):
                         break
                     iid = item.get("id")
                     name = item.get("name", "?")
+                    seen_fingerprints = mercari_item_fingerprints(item)
                     if not iid:
                         log.info("SKIP Mercari no item id: %s", name[:60])
                         continue
-                    if has_item_seen("mercari", iid):
+                    if has_item_seen("mercari", iid, fingerprints=seen_fingerprints):
                         continue
 
                     if item.get("is_no_price"):
@@ -670,6 +688,9 @@ def mercari_loop(bot_app):
 
                     item = loop.run_until_complete(enrich_mercari_item(item))
                     name = item.get("name", name)
+                    seen_fingerprints = mercari_item_fingerprints(item)
+                    if has_item_seen("mercari", iid, fingerprints=seen_fingerprints):
+                        continue
                     if item.get("is_no_price"):
                         log.info("SKIP Mercari no-price/wanted placeholder: %s", name[:60])
                         continue
@@ -750,7 +771,7 @@ def mercari_loop(bot_app):
                     if not is_market_run_current("mercari", run_id):
                         break
                     msg = format_mercari_message(item, name, name_ru, price_str, link)
-                    if not mark_item_seen("mercari", iid):
+                    if not mark_item_seen("mercari", iid, fingerprints=seen_fingerprints):
                         continue
                     state["mercari_stats"]["found"] += 1
                     log.info("FOUND Mercari: %s — ¥%s", name, price)
