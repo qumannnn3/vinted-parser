@@ -18,9 +18,11 @@ from shared import (
     age_in_range,
     brand_match_terms,
     download_image_bytes,
+    fashion_kind_from_text,
     format_msk_timestamp,
     has_brand_disclaimer,
     has_item_seen,
+    is_non_fashion_noise_text,
     is_unwanted_item_text,
     keyword_matches_text,
     log,
@@ -62,11 +64,15 @@ GRAILED_KIND_GROUPS = [
 ]
 GRAILED_KIND_WORDS = [word for _, words in GRAILED_KIND_GROUPS for word in words]
 GRAILED_BLOCKED_WORDS = [
-    "style", "inspired", "type", "look", "custom", "reworked", "bootleg",
+    "style", "inspired", "type", "look", "bootleg",
     "replica", "fake", "copy", "unauthentic", "counterfeit",
     "damaged", "beat", "beater", "flawed", "stain", "stained", "hole", "holes",
-    "ripped", "repair", "parts", "sample", "promo",
-    "poster", "book", "magazine", "tag", "sticker", "keychain", "box only",
+    "ripped", "repair", "parts",
+    "poster", "book", "magazine", "sticker", "keychain", "box only",
+]
+GRAILED_SAFE_BLOCKED_CONTEXT_TERMS = [
+    "maison margiela replica", "margiela replica", "replica sneaker",
+    "replica sneakers", "replica shoe", "replica shoes",
 ]
 
 
@@ -125,36 +131,34 @@ def grailed_has_brand_disclaimer(item, brand):
     return has_brand_disclaimer(_text_blob(item), brand)
 
 
+def grailed_has_blocked_word(text):
+    return _has_any_term(text, GRAILED_BLOCKED_WORDS) and not _has_any_term(text, GRAILED_SAFE_BLOCKED_CONTEXT_TERMS)
+
+
 def is_relevant_grailed_item(item, brand):
     text = _text_blob(item)
-    if is_unwanted_item_text(text):
+    if is_non_fashion_noise_text(text):
         return False
-    if _has_any_term(text, GRAILED_BLOCKED_WORDS):
-        return False
-    if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
+    if grailed_has_blocked_word(text):
         return False
     if not grailed_matches_brand(item, brand):
         return False
     if grailed_has_brand_disclaimer(item, brand):
         return False
-    return _has_any_term(text, GRAILED_KIND_WORDS) or bool(item.get("size")) or bool(DEEP_FASHION_SIZE_PATTERN.search(text))
+    return bool(grailed_fashion_kind(item))
 
 
 def grailed_fashion_kind(item):
     raw = item.get("_raw", item) if isinstance(item, dict) else item
     text = _text_blob(raw)
-    if is_unwanted_item_text(text):
+    if is_non_fashion_noise_text(text):
         return ""
-    if _has_any_term(text, GRAILED_BLOCKED_WORDS):
-        return ""
-    if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
+    if grailed_has_blocked_word(text):
         return ""
     for kind, words in GRAILED_KIND_GROUPS:
         if _has_any_term(text, words):
             return kind
-    if DEEP_FASHION_SIZE_PATTERN.search(text):
-        return "clothing"
-    return ""
+    return fashion_kind_from_text(text)
 
 
 def _item_url(item):
