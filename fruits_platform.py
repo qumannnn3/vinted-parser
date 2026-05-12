@@ -23,6 +23,7 @@ from shared import (
     is_non_fashion_noise_text,
     is_unwanted_item_text,
     keyword_matches_text,
+    listing_fingerprint,
     log,
     mark_item_seen,
     market_search_queries,
@@ -327,6 +328,20 @@ def _normalize_fruits_item(item):
     }
 
 
+def fruits_item_fingerprints(item):
+    return [
+        listing_fingerprint(
+            "fruits",
+            item.get("title"),
+            item.get("brand"),
+            item.get("category"),
+            item.get("size"),
+            item.get("price"),
+            item.get("image"),
+        )
+    ]
+
+
 def fetch_fruits(query, price_min=None, price_max=None, sort_modes=None):
     proxies = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
     items_by_id = {}
@@ -466,7 +481,8 @@ def fruits_loop(bot_app):
 
                 for item in items_by_id.values():
                     iid = item.get("id")
-                    if not iid or has_item_seen("fruits", iid):
+                    seen_fingerprints = fruits_item_fingerprints(item)
+                    if not iid or has_item_seen("fruits", iid, fingerprints=seen_fingerprints):
                         continue
                     if not is_relevant_fruits_item(item, brand):
                         log.info("SKIP FruitsFamily filter: %s", item.get("title", "?")[:60])
@@ -537,7 +553,7 @@ def fruits_loop(bot_app):
                     if not is_market_run_current("fruits", run_id):
                         break
                     msg = format_fruits_message(item, title_ru, price_line)
-                    if not mark_item_seen("fruits", iid):
+                    if not mark_item_seen("fruits", iid, fingerprints=fruits_item_fingerprints(item)):
                         continue
                     state["fruits_stats"]["found"] += 1
                     log.info("FOUND FruitsFamily: %s — ₩%s", item["title"], item["price"])
