@@ -1,4 +1,4 @@
-Total brands: 80
+Total brands: 79
 Every brand below has automatic normalized match terms and query variants.
 
 - stone island
@@ -148,9 +148,6 @@ Every brand below has automatic normalized match terms and query variants.
 - rock revival
   query_variants: rock revival, rockrevival
   match_terms_sample: rock revival, rockrevival
-- armani
-  query_variants: armani
-  match_terms_sample: armani
 - mastermind
   query_variants: mastermind, mastermind japan, mastermind world, マスターマインド
   match_terms_sample: mastermind, mastermind japan, mastermindjapan, mastermind world, mastermindworld, マスターマインド, マスタマインド
