@@ -14,11 +14,13 @@ from shared import (
     age_in_range,
     brand_match_terms,
     download_image_bytes,
+    fashion_kind_from_text,
     format_msk_timestamp,
     get_fx_rate,
     has_brand_disclaimer,
     has_item_seen,
     is_market_run_current,
+    is_non_fashion_noise_text,
     is_unwanted_item_text,
     keyword_matches_text,
     log,
@@ -190,9 +192,7 @@ def _text_blob(item):
 
 def _has_blocked_word(item):
     text = _text_blob(item)
-    # Keep this list for genuinely non-fashion/fake listings only.
-    # Broad terms like wallet, derby, sandals, blouse are allowed if the brand matches.
-    return any(word.lower() in text for word in FRUITS_BLOCKED_WORDS)
+    return is_non_fashion_noise_text(text)
 
 
 def fruits_matches_keyword(item, keyword):
@@ -240,7 +240,7 @@ _WOMENSWEAR_EXCEPTIONS = [
 
 def fruits_fashion_kind(item):
     text = _text_blob(item)
-    if is_unwanted_item_text(text) and not _has_any_term(text, _WOMENSWEAR_EXCEPTIONS):
+    if is_non_fashion_noise_text(text):
         return ""
     if _is_unwanted_fruits_shoe(item):
         return ""
@@ -271,7 +271,7 @@ def fruits_fashion_kind(item):
     for kind, terms in groups:
         if any(term in text for term in terms):
             return kind
-    return "other"
+    return fashion_kind_from_text(text) or "other"
 
 
 def fruits_market_price_krw(items, target_item, brand, keyword=None):
