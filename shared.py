@@ -73,6 +73,13 @@ BAD_WORDS = [
 ]
 
 DEEP_FASHION_BLOCKED_WORDS = [
+    "ceiling light", "lighting fixture", "chandelier", "lamp", "table lamp",
+    "floor lamp", "hdd", "ssd", "hard drive", "external drive", "duplicator",
+    "usb", "software", "adapter", "docking station",
+    "\u30b7\u30fc\u30ea\u30f3\u30b0\u30e9\u30a4\u30c8", "\u7167\u660e", "\u30e9\u30f3\u30d7",
+    "\u5929\u4e95\u7167\u660e", "\u30cf\u30fc\u30c9\u30c7\u30a3\u30b9\u30af",
+    "\u30c7\u30e5\u30d7\u30ea\u30b1\u30fc\u30bf\u30fc", "\u30bd\u30d5\u30c8\u30a6\u30a7\u30a2",
+    "\u30c9\u30c3\u30ad\u30f3\u30b0\u30b9\u30c6\u30fc\u30b7\u30e7\u30f3",
     "novelty", "ノベルティ", "sample", "gift", "promo", "limited gift", "付録",
     "mirror", "ミラー", "鏡", "basket", "バスケット", "籠", "かご",
     "cosmetic", "makeup", "perfume", "perfumes", "fragrance", "cologne",
@@ -119,6 +126,114 @@ DEEP_FASHION_SIZE_PATTERN = re.compile(
     r")(?![a-z0-9])",
     re.IGNORECASE,
 )
+
+COMMON_FASHION_KIND_GROUPS = [
+    ("shoes", [
+        "sneaker", "sneakers", "shoe", "shoes", "trainer", "trainers", "runner", "runners",
+        "boot", "boots", "loafer", "loafers", "derby", "derbies", "oxford", "oxfords",
+        "sandal", "sandals", "slides", "mules", "heels", "pumps", "tabi", "qasa",
+        "kaiwa", "terrex", "ozweego", "ramones", "geobasket", "dunks", "replica sneakers",
+        "replica shoes", "\u30b9\u30cb\u30fc\u30ab\u30fc", "\u30b7\u30e5\u30fc\u30ba",
+        "\u9774", "\u30d6\u30fc\u30c4", "\u30ed\u30fc\u30d5\u30a1\u30fc",
+        "\u30b5\u30f3\u30c0\u30eb", "\u30c0\u30fc\u30d3\u30fc",
+        "\uc6b4\ub3d9\ud654", "\uc2a4\ub2c8\ucee4\uc988", "\ubd80\uce20",
+        "\ub85c\ud37c", "\uc0cc\ub4e4", "\u043a\u0440\u043e\u0441\u0441\u043e\u0432\u043a\u0438",
+        "\u0431\u043e\u0442\u0438\u043d\u043a\u0438", "\u0442\u0443\u0444\u043b\u0438",
+    ]),
+    ("bag", [
+        "bag", "bags", "backpack", "rucksack", "wallet", "cardholder", "card holder",
+        "shoulder bag", "tote", "pouch", "duffle", "messenger bag", "crossbody",
+        "\u30d0\u30c3\u30b0", "\u30ea\u30e5\u30c3\u30af", "\u8ca1\u5e03",
+        "\u30c8\u30fc\u30c8", "\u30dd\u30fc\u30c1", "\uac00\ubc29", "\ubc31\ud329",
+        "\uc9c0\uac11", "\ud1a0\ud2b8\ubc31", "\u0441\u0443\u043c\u043a\u0430",
+        "\u0440\u044e\u043a\u0437\u0430\u043a", "\u043a\u043e\u0448\u0435\u043b\u0435\u043a",
+    ]),
+    ("tops", [
+        "shirt", "t-shirt", "t shirt", "tee", "hoodie", "sweatshirt", "sweat",
+        "sweater", "knit", "cardigan", "polo", "top", "blouse", "long sleeve",
+        "ls tee", "cutsew", "cut sew", "tank top", "camisole", "vest top",
+        "\u30b7\u30e3\u30c4", "t\u30b7\u30e3\u30c4", "\u30d1\u30fc\u30ab\u30fc",
+        "\u30cb\u30c3\u30c8", "\u30ab\u30fc\u30c7\u30a3\u30ac\u30f3",
+        "\u30d6\u30e9\u30a6\u30b9", "\u30c8\u30c3\u30d7\u30b9",
+        "\uc154\uce20", "\ud2f0\uc154\uce20", "\ud6c4\ub4dc", "\ub2c8\ud2b8",
+        "\uac00\ub514\uac74", "\ube14\ub77c\uc6b0\uc2a4", "\u0444\u0443\u0442\u0431\u043e\u043b\u043a\u0430",
+        "\u0445\u0443\u0434\u0438", "\u0440\u0443\u0431\u0430\u0448\u043a\u0430",
+        "\u0441\u0432\u0438\u0442\u0435\u0440", "\u043a\u0430\u0440\u0434\u0438\u0433\u0430\u043d",
+    ]),
+    ("outerwear", [
+        "jacket", "coat", "blouson", "vest", "parka", "down jacket", "puffer",
+        "windbreaker", "bomber", "track jacket", "track top", "tracksuit",
+        "blazer", "anorak", "\u30b8\u30e3\u30b1\u30c3\u30c8", "\u30b3\u30fc\u30c8",
+        "\u30d6\u30eb\u30be\u30f3", "\u30d9\u30b9\u30c8", "\u30c0\u30a6\u30f3",
+        "\uc790\ucf13", "\uc7ac\ud0b7", "\ucf54\ud2b8", "\ud328\ub529",
+        "\ubd04\ubc84", "\u043a\u0443\u0440\u0442\u043a\u0430", "\u043f\u0430\u043b\u044c\u0442\u043e",
+        "\u0436\u0438\u043b\u0435\u0442", "\u043f\u0443\u0445\u043e\u0432\u0438\u043a",
+    ]),
+    ("bottoms", [
+        "pants", "jeans", "denim", "trousers", "shorts", "skirt", "cargo",
+        "slacks", "leggings", "joggers", "sweatpants", "track pants",
+        "\u30d1\u30f3\u30c4", "\u30c7\u30cb\u30e0", "\u30b8\u30fc\u30f3\u30ba",
+        "\u30b7\u30e7\u30fc\u30c4", "\u30b9\u30ab\u30fc\u30c8",
+        "\ubc14\uc9c0", "\ud32c\uce20", "\uccad\ubc14\uc9c0", "\ub370\ub2d8",
+        "\uc1fc\uce20", "\uc2a4\ucee4\ud2b8", "\ub808\uae45\uc2a4",
+        "\u0434\u0436\u0438\u043d\u0441\u044b", "\u0448\u0442\u0430\u043d\u044b",
+        "\u0431\u0440\u044e\u043a\u0438", "\u0448\u043e\u0440\u0442\u044b", "\u044e\u0431\u043a\u0430",
+    ]),
+    ("dress", [
+        "dress", "one piece", "one-piece", "tunic", "\u30ef\u30f3\u30d4\u30fc\u30b9",
+        "\u30c9\u30ec\u30b9", "\uc6d0\ud53c\uc2a4", "\ud29c\ub2c9",
+        "\u043f\u043b\u0430\u0442\u044c\u0435",
+    ]),
+    ("accessory", [
+        "cap", "hat", "beanie", "belt", "scarf", "gloves", "sunglasses", "glasses",
+        "eyewear", "tie", "brooch", "pin", "watch cap", "\u5e3d\u5b50",
+        "\u30ad\u30e3\u30c3\u30d7", "\u30cf\u30c3\u30c8", "\u30d9\u30eb\u30c8",
+        "\u30de\u30d5\u30e9\u30fc", "\u30b5\u30f3\u30b0\u30e9\u30b9",
+        "\ubaa8\uc790", "\ucea1", "\ube44\ub2c8", "\ubca8\ud2b8",
+        "\uba38\ud50c\ub7ec", "\u043a\u0435\u043f\u043a\u0430", "\u0448\u0430\u043f\u043a\u0430",
+        "\u0440\u0435\u043c\u0435\u043d\u044c", "\u0448\u0430\u0440\u0444", "\u043e\u0447\u043a\u0438",
+    ]),
+]
+COMMON_FASHION_KIND_WORDS = [word for _, words in COMMON_FASHION_KIND_GROUPS for word in words]
+
+NON_FASHION_NOISE_TERMS = [
+    "ceiling light", "lighting fixture", "chandelier", "lamp", "table lamp",
+    "floor lamp", "light bulb", "led light", "interior light", "wall light",
+    "hdd", "ssd", "hard drive", "external drive", "duplicator", "docking station",
+    "usb", "software", "adapter", "charger", "cable", "battery", "power supply",
+    "phone", "iphone", "android", "smartphone", "tablet", "laptop", "computer",
+    "keyboard", "mouse", "monitor", "printer", "router", "camera", "lens",
+    "game console", "controller", "speaker", "microphone", "audio interface",
+    "perfume", "fragrance", "cologne", "makeup", "cosmetic", "shampoo", "cream",
+    "toy", "figure", "doll", "plush", "book", "magazine", "dvd", "blu-ray",
+    "cd", "record", "vinyl", "poster", "sticker", "keychain", "trading card",
+    "tableware", "plate", "cup", "mug", "glass", "bottle", "rug", "blanket",
+    "pillow", "towel", "curtain", "bed sheet", "sofa", "chair", "desk", "shelf",
+    "guitar", "bass guitar", "drum", "piano", "keyboard piano", "violin", "flute",
+    "trumpet", "saxophone", "instrument", "musical instrument",
+    "\u30b7\u30fc\u30ea\u30f3\u30b0\u30e9\u30a4\u30c8", "\u7167\u660e", "\u30e9\u30f3\u30d7",
+    "\u30cf\u30fc\u30c9\u30c7\u30a3\u30b9\u30af", "\u30c7\u30e5\u30d7\u30ea\u30b1\u30fc\u30bf\u30fc",
+    "\u30bd\u30d5\u30c8\u30a6\u30a7\u30a2", "\u30b9\u30de\u30db", "\u30ab\u30e1\u30e9",
+    "\u9999\u6c34", "\u30d5\u30a3\u30ae\u30e5\u30a2", "\u672c", "\u96d1\u8a8c",
+    "\u30dd\u30b9\u30bf\u30fc", "\u30b9\u30c6\u30c3\u30ab\u30fc", "\u30ad\u30fc\u30db\u30eb\u30c0\u30fc",
+    "\u30ae\u30bf\u30fc", "\u697d\u5668", "\uc870\uba85", "\ud558\ub4dc\ub514\uc2a4\ud06c",
+    "\uc18c\ud504\ud2b8\uc6e8\uc5b4", "\uce74\uba54\ub77c", "\ud5a5\uc218",
+    "\ud53c\uaddc\uc5b4", "\uc7a5\ub09c\uac10", "\ucc45", "\uae30\ud0c0",
+    "\uc545\uae30",
+]
+
+COUNTERFEIT_NOISE_TERMS = [
+    "fake", "counterfeit", "unauthentic", "not authentic", "bootleg", "copy",
+    "knockoff", "knock-off", "dupe", "replica item", "replica bag", "replica watch",
+    "\u5047\u7269", "\u30b3\u30d4\u30fc", "\u30d5\u30a7\u30a4\u30af",
+    "\uac00\ud488", "\ub808\ud50c\ub9ac\uce74", "\u043f\u043e\u0434\u0434\u0435\u043b\u043a\u0430",
+    "\u043a\u043e\u043f\u0438\u044f",
+]
+
+COUNTERFEIT_SAFE_MODEL_TERMS = [
+    "maison margiela replica", "margiela replica", "replica sneakers",
+    "replica sneaker", "replica shoes", "replica shoe", "replica gats",
+]
 
 ALL_BRANDS = [
     "stone island", "balenciaga", "raf simons", "bape", "aape",
@@ -969,7 +1084,6 @@ def brand_match_terms(brand):
 
 def text_matches_brand(text, brand, *, extra_terms=None, exclude_compact_terms=None):
     normalized_text = normalize_match_text(text)
-    compact_text = compact_match_text(text)
     excluded = {compact_match_text(x) for x in (exclude_compact_terms or []) if x}
     terms = [*brand_match_terms(brand), *(extra_terms or [])]
     for term in terms:
@@ -983,7 +1097,7 @@ def text_matches_brand(text, brand, *, extra_terms=None, exclude_compact_terms=N
             return True
         # Compact matching fixes Y-3/Y−3/Y3, Project G/R/ProjectGR, etc.
         # Avoid ultra-short generic terms unless they came from an explicit alias.
-        if comp and len(comp) >= 2 and comp in compact_text:
+        if comp and len(comp) >= 2 and _contains_compact_term(normalized_text, comp):
             return True
     return False
 
@@ -1179,20 +1293,84 @@ def _contains_term(text, term):
     if not term:
         return False
     if re.fullmatch(r"[a-z0-9][a-z0-9 .&'/-]*[a-z0-9]", term):
-        boundary = r"[a-z0-9.]" if "." in term else r"[a-z0-9]"
-        pattern = rf"(?<!{boundary})" + re.escape(term) + rf"(?!{boundary})"
-        if re.search(pattern, text):
+        if _contains_compact_term(text, compact_match_text(term)):
             return True
     elif term in text:
         return True
     compact_term = compact_match_text(term)
     if compact_term and len(compact_term) >= 3:
+        return _contains_compact_term(text, compact_term)
+    return False
+
+
+def _contains_compact_term(text, compact_term):
+    compact_term = compact_match_text(compact_term)
+    if not compact_term:
+        return False
+
+    text = normalize_match_text(text)
+    if not text:
+        return False
+
+    if re.fullmatch(r"[a-z0-9]+", compact_term):
+        separator = r"[\s._/\\&'-]*"
+        body = separator.join(re.escape(ch) for ch in compact_term)
+        if len(compact_term) <= 3:
+            code_suffix = r"\s*[-._/\\&']+\s*[a-z0-9]"
+            pattern = rf"(?<![a-z0-9]){body}(?!{code_suffix})(?![a-z0-9])"
+        else:
+            pattern = rf"(?<![a-z0-9]){body}(?![a-z0-9])"
+        return re.search(pattern, text) is not None
+
+    if len(compact_term) >= 3:
         return compact_term in compact_match_text(text)
     return False
 
 
 def _has_any_term(text, terms):
     return any(_contains_term(text, term) for term in terms)
+
+
+def fashion_kind_from_text(text):
+    text = normalize_match_text(text)
+    if not text:
+        return ""
+    for kind, terms in COMMON_FASHION_KIND_GROUPS:
+        if _has_any_term(text, terms):
+            return kind
+    if DEEP_FASHION_SIZE_PATTERN.search(text):
+        return "clothing"
+    return ""
+
+
+def has_fashion_item_signal(text):
+    text = normalize_match_text(text)
+    if not text:
+        return False
+    return _has_any_term(text, COMMON_FASHION_KIND_WORDS)
+
+
+def has_fashion_signal(text):
+    return bool(fashion_kind_from_text(text))
+
+
+def _has_counterfeit_noise(text):
+    if _has_any_term(text, COUNTERFEIT_SAFE_MODEL_TERMS):
+        return False
+    return _has_any_term(text, COUNTERFEIT_NOISE_TERMS)
+
+
+def is_non_fashion_noise_text(text):
+    text = normalize_match_text(text)
+    if not text:
+        return False
+    if _has_counterfeit_noise(text):
+        return True
+    if _has_any_term(text, NON_FASHION_NOISE_TERMS):
+        return not has_fashion_item_signal(text)
+    if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
+        return not has_fashion_item_signal(text)
+    return False
 
 
 def is_unwanted_item_text(text):
