@@ -24,6 +24,7 @@ from shared import (
     is_market_run_current,
     is_non_fashion_noise_text,
     keyword_matches_text,
+    listing_fingerprint,
     log,
     mark_item_seen,
     market_search_queries,
@@ -450,6 +451,24 @@ def get_vinted_photo_url(item):
     return ""
 
 
+def vinted_item_fingerprints(item):
+    seller = item.get("user", {}) or {}
+    price = item.get("price", {}) or {}
+    return [
+        listing_fingerprint(
+            "vinted",
+            item.get("title"),
+            item.get("brand_title"),
+            item.get("size_title"),
+            item.get("catalog_title"),
+            price.get("amount"),
+            price.get("currency_code"),
+            seller.get("id") or seller.get("login") or seller.get("username"),
+            get_vinted_photo_url(item),
+        )
+    ]
+
+
 def download_vinted_photo(domain, photo_url):
     if not photo_url:
         return None
@@ -589,8 +608,9 @@ def _vinted_loop_inner(bot_app):
                         if not is_market_run_current("vinted", run_id):
                             break
                         iid = item.get("id")
+                        seen_fingerprints = vinted_item_fingerprints(item)
 
-                        if not iid or has_item_seen("vinted", iid, domain):
+                        if not iid or has_item_seen("vinted", iid, fingerprints=seen_fingerprints):
                             continue
 
                         relevance, age_hours = vinted_relevance_status(item, brand)
@@ -687,7 +707,7 @@ def _vinted_loop_inner(bot_app):
                         if not is_market_run_current("vinted", run_id):
                             break
 
-                        if not mark_item_seen("vinted", iid, domain):
+                        if not mark_item_seen("vinted", iid, fingerprints=seen_fingerprints):
                             continue
 
                         state["vinted_stats"]["found"] += 1
