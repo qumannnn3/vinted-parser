@@ -11,19 +11,18 @@ import requests
 
 from shared import (
     ALL_BRANDS,
-    BAD_WORDS,
     CATALOG_IDS,
-    DEEP_FASHION_BLOCKED_WORDS,
     PROXY_URL,
     USER_AGENTS,
     VINTED_REGIONS,
     age_in_range,
     brand_match_terms,
+    fashion_kind_from_text,
     format_msk_timestamp,
     has_brand_disclaimer,
     has_item_seen,
     is_market_run_current,
-    is_unwanted_item_text,
+    is_non_fashion_noise_text,
     keyword_matches_text,
     log,
     mark_item_seen,
@@ -242,13 +241,9 @@ def _vinted_text_blob(item):
 
 def is_deep_fashion_vinted_item(item):
     text = _vinted_text_blob(item)
-    if is_unwanted_item_text(text):
+    if is_non_fashion_noise_text(text):
         return False
-    if _has_any_term(text, DEEP_FASHION_BLOCKED_WORDS):
-        return False
-    if _has_any_term(text, BAD_WORDS):
-        return False
-    return True
+    return bool(vinted_fashion_kind(item))
 
 
 def vinted_matches_keyword(item, keyword):
@@ -278,9 +273,9 @@ def vinted_has_brand_disclaimer(item, brand):
 
 def vinted_fashion_kind(item):
     text = _vinted_text_blob(item)
-    if is_unwanted_item_text(text):
+    if is_non_fashion_noise_text(text):
         return ""
-
+    return fashion_kind_from_text(text)
     groups = [
         ("shoes", ["sneaker", "sneakers", "shoe", "shoes", "boots", "loafer", "sandals", "обувь", "кроссовки", "ботинки"]),
         ("bag", ["bag", "backpack", "wallet", "shoulder bag", "tote", "pouch", "сумка", "рюкзак", "кошелек"]),
